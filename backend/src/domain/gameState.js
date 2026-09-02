@@ -32,6 +32,7 @@ export const GAME_STATUSES = Object.freeze(['in_progress', 'ending', 'finished',
 export const GAME_PHASES = Object.freeze([
   'TURN_START',
   'JAIL_DECISION', // only entered when the current player is in jail; otherwise TURN_START goes straight to ROLLING
+  'PLAYING_CARD', // (ASYMMETRIC only) Chọn bài di chuyển hoặc đặt bẫy thay vì đổ xúc xắc
   'ROLLING',
   'MOVING',
   'LANDING',
@@ -94,6 +95,8 @@ export const HOTEL_SUPPLY_TOTAL = 12;
  * @property {number} nextBuildDiscount - 2026-08-22 (the 24-card deck, C07 "Giảm Giá Xây Dựng" -$50 / C12 option B -$100): a one-shot per-player discount consumed by the *next* BUILD_HOUSE this player successfully completes (handleBuildHouse resets it to 0 immediately after), stacking additively with GameState.buildCostModifierAmount's own separate global/round-scoped modifier at the same call site. 0 = none pending.
  * @property {{percent: number, max: number}|null} nextRentDiscount - companion to nextBuildDiscount: C12 option C ("giảm 50%, tối đa $150") — consumed by the *next* rent payment this player owes as the payer (settleDebt's own PAYING_RENT-derived call, not GameState.rentModifierPercent's unrelated owner-side global modifier), clearing back to null immediately after. `max` caps the absolute discount amount, not the resulting rent.
  * @property {string[]} inventory - 2026-08-27 (Card Inventory system): IDs of keepable event cards this player holds in their hand to play later.
+ * @property {string[]} movementHand - [ASYMMETRIC] Danh sách thẻ di chuyển trên tay (tối đa 3 thẻ)
+ * @property {string[]} activePerks - [ASYMMETRIC] Các Lõi Công Nghệ / Nội tại nhóm màu đang có
  */
 
 /**
@@ -132,6 +135,8 @@ export function createPlayerGameState(fields) {
     nextBuildDiscount: fields.nextBuildDiscount ?? 0,
     nextRentDiscount: fields.nextRentDiscount ?? null,
     inventory: fields.inventory ?? [],
+    movementHand: fields.movementHand ?? [],
+    activePerks: fields.activePerks ?? [],
   };
 }
 
@@ -186,6 +191,9 @@ export function createPlayerGameState(fields) {
  *   Expiry, per the card's own text ("đến khi người chơi bắt đầu lượt tiếp theo, hoặc Property được Build"), is derived rather than stored as a deadline: `roundNumber > grantedAtRound` means the owner's next turn has begun. That equivalence holds for the same reason PropertyRECENTLY_ACQUIRED's own gate relies on it — roundNumber advances once per full cycle through active players, and a card is always drawn on the owner's own turn, so exactly one full round of opponents sits inside the protection window. Building on the property clears it early (HOUSE_PROTECTED takes over permanently from there, so keeping it would be redundant), as does the owner going bankrupt/forfeiting with it still live.
  * @property {number} rentModifierPercent - 2026-08-22 (the 24-card "Cơ Hội/Khí Vận" deck, K01 "Thị Trường Sôi Động" +10 / K02 "Thị Trường Suy Thoái" -10): a global, round-scoped percentage applied on top of calculateRent.js's own output — that function itself stays untouched/pure, this is layered on at turnMachine.js's own PAYING_RENT call site. 0 = no modifier. Reset to 0 by advanceTurn() at the exact moment turn order wraps back to its start (the same real round boundary roundNumber's own doc already describes) — "trong một vòng" (for the rest of the current round), not a fixed-duration timer.
  * @property {number} buildCostModifierAmount - companion to rentModifierPercent, same round-scoped reset — K07 "Giá Vật Liệu Tăng" +50 / K08 "Vật Liệu Giảm Giá" -50 per build, layered on top of economy/propertyEconomy.js's own calculateBuildHouse() output at handleBuildHouse's own call site, that function likewise untouched.
+ * @property {string[]} movementDeck - [ASYMMETRIC] Chồng bài di chuyển chung (rút thẻ từ đây)
+ * @property {string[]} movementDiscardPile - [ASYMMETRIC] Chồng bài di chuyển đã dùng
+ * @property {{ tileIndex: number, type: string, ownerId: string, duration: number }[]} activeTraps - [ASYMMETRIC] Hệ thống Bẫy / Chướng ngại vật trên bản đồ
  */
 // Note: eventDeck (added alongside pendingAuction/pendingEventCardId when
 // turnMachine.js first wired DRAWING_CARD/AWAITING_PURCHASE-decline to real
@@ -249,5 +257,8 @@ export function createGameState(fields) {
     propertyProtection: fields.propertyProtection ?? null,
     rentModifierPercent: fields.rentModifierPercent ?? 0,
     buildCostModifierAmount: fields.buildCostModifierAmount ?? 0,
+    movementDeck: fields.movementDeck ?? [],
+    movementDiscardPile: fields.movementDiscardPile ?? [],
+    activeTraps: fields.activeTraps ?? [],
   };
 }

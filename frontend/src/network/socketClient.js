@@ -1,6 +1,6 @@
 import { io } from 'socket.io-client'
 import { useGameStore } from '../store/gameStore'
-import { getBoardConfig } from './api.js'
+import { getBoardConfig, getEventCards } from './api.js'
 import { BANK_ID } from '../features/game/ledgerFormat.js'
 
 // Socket.IO client (P11-T01) — a plain singleton module, not a React hook,
@@ -124,6 +124,20 @@ async function ensureStaticBoardLoaded(boardId) {
   }
 }
 
+// Same pattern as ensureStaticBoardLoaded: fetch once, keep, and — because
+// this is called from every S2C_STATE_UPDATE — silently retry on the next
+// broadcast if it failed. Match-static content, so the "already have it"
+// guard is just "the map is non-empty".
+async function ensureEventCardsLoaded() {
+  if (Object.keys(useGameStore.getState().eventCards).length > 0) return
+  try {
+    const data = await getEventCards(authToken)
+    useGameStore.getState().setEventCards(data.cards ?? {})
+  } catch (err) {
+    console.error('Failed to load event-card dictionary:', err.message)
+  }
+}
+
 function attachListeners(sock) {
   sock.on('connect', () => {
     useGameStore.getState().setConnectionStatus('connected')
@@ -203,6 +217,7 @@ function attachListeners(sock) {
   sock.on('S2C_STATE_UPDATE', (payload) => {
     useGameStore.getState().setGameState(payload)
     ensureStaticBoardLoaded(payload.gameState?.boardId)
+    ensureEventCardsLoaded()
     recordEventCardDraw(payload.gameState)
     // Reads staticBoard *before* the ensureStaticBoardLoaded() call above
     // resolves (that fetch is fire-and-forget, not awaited) — on the very

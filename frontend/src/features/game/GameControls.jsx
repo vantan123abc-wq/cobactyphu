@@ -4,6 +4,7 @@ import { useGameStore } from '../../store/gameStore'
 import { sendGameAction } from '../../network/socketClient'
 import { getRoom } from '../../network/api'
 import { FINAL_PHASE_DURATION_ROUNDS } from './winConditionConstants'
+import { suggestCards } from './cardSuggestions'
 import styles from './GameControls.module.css'
 import ActionNotice from './ActionNotice'
 
@@ -111,6 +112,7 @@ export default function GameControls() {
   const gameState = useGameStore((s) => s.currentGameState)
   const staticBoard = useGameStore((s) => s.staticBoard)
   const lastError = useGameStore((s) => s.lastError)
+  const eventCards = useGameStore((s) => s.eventCards)
   const setTradeDraftTargetId = useGameStore((s) => s.setTradeDraftTargetId)
 
   const [displayNames, setDisplayNames] = useState({})
@@ -168,6 +170,26 @@ export default function GameControls() {
     )
     return hasLiquidatableAsset ? null : 'Không đủ tiền và không còn tài sản nào để thanh lý'
   })()
+
+  // 2026-09-03, user request: a kept card that would free the player must be
+  // usable FROM the jail dialog, not only from the Card Inventory panel in the
+  // side rail. `VE_SO_TRUNG_AN_UI` grants a Get-Out-of-Jail card only once
+  // played from the hand — a jailed player holding it otherwise has to find a
+  // different panel, play it there, then come back here.
+  //
+  // suggestCards() already identifies exactly this situation ("in jail, 0 jail
+  // cards, holding a GRANT_JAIL_CARD card"), and matches on the card's intents
+  // rather than its id — so this stays correct if another jail card is added.
+  // We only want that specific suggestion here, keyed by its card actually
+  // being a jail-granting one.
+  const grantsJailCard = (cardId) => {
+    const card = eventCards[cardId]
+    if (!card) return false
+    const all = [...(card.intents ?? []), ...(card.options ?? []).flatMap((o) => o.intents ?? [])]
+    return all.some((i) => i.action === 'GRANT_JAIL_CARD')
+  }
+  const jailCardInHand =
+    suggestCards({ gameState, me, cards: eventCards }).find((s) => grantsJailCard(s.cardId))?.cardId ?? null
 
   // Win Condition design (2026-08-19) — persistent countdown badge, distinct
   // from FinalPhaseBanner.jsx's one-shot announcement (that one is dismissed
@@ -228,6 +250,14 @@ export default function GameControls() {
   function act(actionType) {
     setBusy(true)
     sendGameAction(actionType)
+  }
+
+  // USE_INVENTORY_CARD for the option-less keepable cards (VE_SO_TRUNG_AN_UI
+  // here). Same shape CardInventory.jsx sends; `playerId` is overwritten
+  // server-side, nothing random is computed client-side.
+  function playInventoryCard(cardId) {
+    setBusy(true)
+    sendGameAction('USE_INVENTORY_CARD', { cardId })
   }
 
   // Finding #27 (docs/PROJECT_STATUS.md), resolved 2026-08-19: the dice
@@ -304,11 +334,28 @@ export default function GameControls() {
               type="button"
               className={styles.actionButton}
               disabled={busy || !(me.jailFreeCards > 0)}
-              title={me.jailFreeCards > 0 ? undefined : 'Bạn không có Thẻ Miễn Phí Ra Tù nào — nhận thẻ này khi rút được lá Cơ Hội/Khí Vận may mắn'}
+              title={
+                me.jailFreeCards > 0
+                  ? undefined
+                  : jailCardInHand
+                    ? 'Bạn chưa có Thẻ Ra Tù dùng ngay — nhưng có một thẻ trong Kho Thẻ cho bạn một thẻ. Bấm "Dùng thẻ trong kho" bên dưới.'
+                    : 'Bạn không có Thẻ Ra Tù nào — nhận được khi rút lá Cơ Hội/Khí Vận may mắn, hoặc từ một thẻ giữ trong Kho Thẻ.'
+              }
               onClick={() => act('USE_JAIL_CARD')}
             >
               Dùng Thẻ Miễn Phí{me.jailFreeCards > 0 ? ` (${me.jailFreeCards})` : ''}
             </button>
+            {me.jailFreeCards === 0 && jailCardInHand && (
+              <button
+                type="button"
+                className={styles.actionButton}
+                disabled={busy}
+                title="Dùng thẻ trong Kho Thẻ để nhận một Thẻ Ra Tù, rồi bấm “Dùng Thẻ Miễn Phí” để ra."
+                onClick={() => playInventoryCard(jailCardInHand)}
+              >
+                Dùng thẻ trong kho → Thẻ Ra Tù
+              </button>
+            )}
             <button type="button" className={styles.rollButton} disabled={busy} onClick={attemptJailRoll}>
               🎲 Thử Đổ Đôi
             </button>

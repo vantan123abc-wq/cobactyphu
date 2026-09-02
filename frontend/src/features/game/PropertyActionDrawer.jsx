@@ -62,13 +62,17 @@ export default function PropertyActionDrawer() {
   const isMyTurn = me != null && me.turnOrder === gameState?.currentTurnIndex
   const tile = staticBoard?.tiles?.find((t) => t.position === me?.currentPosition)
   
-  // 2026-09-02: User requested setting the starting price for FORCE_AUCTION
+  // 2026-09-02: User requested setting the starting price for FORCE_AUCTION.
+  // Defaults to the tile's printed price — the same opening the server uses
+  // when no basePrice is sent — so the field starts on the old behaviour and
+  // the discount is something the player opts into.
   const [basePrice, setBasePrice] = useState(0)
+  const tilePrice = tile?.price
   useEffect(() => {
-    if (tile?.price && gameState?.phase === 'AWAITING_PURCHASE') {
-      setBasePrice(tile.price)
+    if (tilePrice && gameState?.phase === 'AWAITING_PURCHASE') {
+      setBasePrice(tilePrice)
     }
-  }, [tile?.id, gameState?.phase])
+  }, [tilePrice, gameState?.phase])
 
   useEffect(() => {
     setBusy(false)
@@ -108,6 +112,22 @@ export default function PropertyActionDrawer() {
     sendGameAction(actionType, property ? { propertyId: property.id } : {})
   }
 
+  // The band handleForceAuction enforces, applied here too so the button can
+  // only ever send a value the server will accept.
+  function clampOpeningPrice(value) {
+    const n = Math.round(Number(value))
+    if (!Number.isFinite(n)) return printedPrice
+    return Math.min(printedPrice, Math.max(minOpeningPrice, n))
+  }
+
+  function forceAuction(openingPrice) {
+    setBusy(true)
+    sendGameAction('FORCE_AUCTION', {
+      ...(property ? { propertyId: property.id } : {}),
+      basePrice: openingPrice,
+    })
+  }
+
   const rentRows =
     tile.tileType === 'property' && tile.rentTable
       ? tile.rentTable.map((rent, i) => ({ level: i + 1, rent }))
@@ -121,6 +141,23 @@ export default function PropertyActionDrawer() {
 
   // Mirrors handleBuyProperty's own `player.currentBalance < amount` check.
   const cannotAffordBuy = typeof tile.price === 'number' && me.currentBalance < tile.price
+
+  // FORCE_AUCTION economics, mirrored from handleForceAuction (2026-09-03).
+  // `currentAuctionFee`/`cannotAffordAuction` were being READ by the JSX below
+  // without ever being declared — a live ReferenceError that crashed this
+  // drawer on every AWAITING_PURCHASE, i.e. every time anyone landed on an
+  // unowned tile. Defined here, and kept in one place so the three uses below
+  // cannot drift from each other.
+  //
+  // The fee tracks calculateAuctionFee(tile.price) byte-for-byte, and is
+  // computed from the PRINTED price on purpose: the server charges it that way
+  // so that discounting the opening bid never discounts the host's own cost.
+  const printedPrice = typeof tile.price === 'number' ? tile.price : 0
+  const currentAuctionFee = Math.ceil(Math.max(20, Math.min(80, printedPrice * 0.05)))
+  const cannotAffordAuction = me.currentBalance < currentAuctionFee
+  // Allowed opening-price band, mirroring MIN_AUCTION_OPEN_RATIO (0.5) and the
+  // "never above the printed price" rule in handleForceAuction.
+  const minOpeningPrice = Math.ceil(printedPrice * 0.5)
 
   // Real BUILD_HOUSE preconditions, mirrored from the server (buildRules.js)
   // — only meaningful while a build is actually being offered (AWAITING_UPGRADE,
@@ -199,22 +236,33 @@ export default function PropertyActionDrawer() {
             </button>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', color: '#888' }}>
-                <span>Giá khởi điểm đấu giá:</span>
+                <span>Giá khởi điểm (${minOpeningPrice}–${printedPrice}):</span>
                 <span>Phí mở: ${currentAuctionFee}</span>
               </div>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
+                  min={minOpeningPrice}
+                  max={printedPrice}
+                  step={1}
                   value={basePrice}
-                  onChange={(e) => setBasePrice(Math.max(1, parseInt(e.target.value) || 0))}
+                  onChange={(e) => setBasePrice(parseInt(e.target.value, 10) || 0)}
+                  // Clamped on blur rather than on every keystroke: clamping as
+                  // you type makes the field impossible to edit (deleting a
+                  // digit snaps it straight back to the floor).
+                  onBlur={() => setBasePrice(clampOpeningPrice(basePrice))}
                   style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #444', background: '#222', color: '#fff' }}
                 />
                 <button
                   type="button"
                   className={styles.declineButton}
                   disabled={busy || cannotAffordAuction}
-                  title={cannotAffordAuction ? `Không đủ tiền trả phí — bạn có $${me.currentBalance}` : 'Trả phí mở sàn để nhận 20% hoa hồng nếu đấu giá thành công. Lưu ý: bạn là chủ sàn nên KHÔNG được đặt giá trong phiên này.'}
-                  onClick={() => act('FORCE_AUCTION')}
+                  title={cannotAffordAuction ? `Không đủ tiền trả phí — bạn có $${me.currentBalance}` : `Mở sàn ở $${clampOpeningPrice(basePrice)}. Trả phí để nhận 20% hoa hồng nếu đấu giá thành công. Lưu ý: bạn là chủ sàn nên KHÔNG được đặt giá trong phiên này.`}
+                  // Send the clamped value, never the raw field: the server
+                  // rejects anything outside [minOpeningPrice, printedPrice]
+                  // with INVALID_BASE_PRICE, and a half-typed number must not
+                  // turn into a rejected action.
+                  onClick={() => forceAuction(clampOpeningPrice(basePrice))}
                   style={{ flex: 1, margin: 0 }}
                 >
                   Mở sàn

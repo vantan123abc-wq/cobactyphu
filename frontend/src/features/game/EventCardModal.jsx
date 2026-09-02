@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { useGameStore } from '../../store/gameStore'
 import { sendGameAction } from '../../network/socketClient'
-import { getEventCards, getRoom } from '../../network/api'
+import { getRoom } from '../../network/api'
 import { CHANCE_FORTUNE_COLOR, GROUP_COLORS } from '../board/tileVisuals'
 import TileIcon from '../board/TileIcon'
 import styles from './EventCardModal.module.css'
@@ -31,10 +31,11 @@ import ActionNotice from './ActionNotice'
 //   ever sends optionId. Same is true of `dieFaceRoll` as of 2026-08-22
 //   (C05/C11's own die-face reward tables).
 //
-// Real card content, wired 2026-08-21: fetched here via getEventCards()
-// rather than a hand-maintained frontend mirror (the deleted
-// `eventCardDictionary.js`, whose own header flagged the exact drift risk
-// this replaces). `gameState.lastDrawnEventCardId` (set for INSTANT draws
+// Real card content: from the store's `eventCards` (GET /api/v1/event-cards,
+// fetched once per session in socketClient.js as of 2026-09-03; was a local
+// fetch here 2026-08-21..09-03), not a hand-maintained frontend mirror (the
+// deleted `eventCardDictionary.js`, whose own header flagged the exact drift
+// risk this replaces). `gameState.lastDrawnEventCardId` (set for INSTANT draws
 // too, not just pendingEventCardId's CHOICE-only case — see turnMachine.js's
 // resolveDrawingCard) is what lets an instant card show real text at all.
 //
@@ -92,16 +93,16 @@ export default function EventCardModal() {
   const transactions = useGameStore((s) => s.transactions)
   const lastError = useGameStore((s) => s.lastError)
 
+  // The event-card dictionary moved into the store (2026-09-03) — fetched once
+  // per session by socketClient.js, shared with CardInventory and
+  // GameControls, retried automatically on the next broadcast if it failed.
+  // This component used to fetch it itself; the id-based fallback copy below
+  // still covers the window before it lands or if it never does.
+  const cards = useGameStore((s) => s.eventCards)
+
   const [busy, setBusy] = useState(false)
   const [dismissedDrawKey, setDismissedDrawKey] = useState(null)
-  const [cards, setCards] = useState({})
   const [displayNames, setDisplayNames] = useState({})
-
-  useEffect(() => {
-    getEventCards(session.access_token)
-      .then((data) => setCards(data.cards ?? {}))
-      .catch(() => {}) // a fetch failure just means real card text stays unavailable — the fallback copy below still works
-  }, [session.access_token])
 
   useEffect(() => {
     if (!roomId) return
@@ -297,18 +298,46 @@ export default function EventCardModal() {
             {card ? (
               <>
                 <p className={styles.cardText}>{card.text}</p>
-                {!isChoicePending && card.type === 'CHOICE' && gameState?.lastRoll && card.options?.some(o => o.intents?.some(i => i.action === 'DIE_FACE_REWARD')) && (
+                {/* Gated on `die2 === 0`, not on "this card HAS a die option"
+                    (2026-09-02). handleEventChoice only overwrites lastRoll when
+                    the chosen option actually rolled, synthesising it as
+                    `{die1: face, die2: 0}`; a real movement roll always has both
+                    dice in 1..6. Keying off the card meant picking C05's safe
+                    option — which rolls nothing — still rendered this panel, and
+                    it showed the *movement* dice from earlier in the turn as
+                    though they were the card's result. */}
+                {!isChoicePending && card.type === 'CHOICE' && gameState?.lastRoll?.die2 === 0 && card.options?.some(o => o.intents?.some(i => i.action === 'DIE_FACE_REWARD')) && (
                   <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', textAlign: 'center' }}>
                     <div style={{ fontWeight: 'bold', fontSize: '1.2em', marginBottom: '8px' }}>
                       Kết quả tung xúc xắc: {gameState.lastRoll.total}
                     </div>
                     {(() => {
-                      const gained = eventTransactions.filter(t => t.toPlayerId === me?.id).reduce((sum, t) => sum + t.amount, 0);
-                      const lost = eventTransactions.filter(t => t.fromPlayerId === me?.id).reduce((sum, t) => sum + t.amount, 0);
-                      const net = gained - lost;
-                      if (net > 0) return <div style={{ color: '#4ade80', fontWeight: 'bold' }}>Bạn nhận được: ${net}</div>;
-                      if (net < 0) return <div style={{ color: '#f87171', fontWeight: 'bold' }}>Bạn bị trừ: ${-net}</div>;
-                      return <div style={{ color: '#9ca3af' }}>Không nhận được thêm tiền!</div>;
+                      // 2026-09-02 bug fix — user report: "một số thẻ ... không
+                      // thực hiện được tính năng của nó". The money always moved
+                      // (the engine was verified correct for all 28 cards); this
+                      // readout was reading fields that do not exist on a
+                      // transaction. The raw objects on the wire carry
+                      // `fromGamePlayerId`/`toGamePlayerId` — exactly what the
+                      // `.amounts` block a few lines below already uses — not
+                      // `fromPlayerId`/`toPlayerId`, which is `ledgerFormat.js`'s
+                      // separate, already-mapped shape. Both filters therefore
+                      // matched nothing, `net` was always 0, and every die-face
+                      // card (C05 "Cơ Hội Đầu Tư", C11 "Cú Đánh Liều") announced
+                      // "Không nhận được thêm tiền!" even on a $300 win.
+                      //
+                      // Compared against the DRAWER, not `me`: this panel is not
+                      // gated on isMyTurn, so a spectator was measuring the wrong
+                      // player's money too.
+                      const gained = eventTransactions
+                        .filter((t) => t.toGamePlayerId === drawer?.id)
+                        .reduce((sum, t) => sum + t.amount, 0)
+                      const lost = eventTransactions
+                        .filter((t) => t.fromGamePlayerId === drawer?.id)
+                        .reduce((sum, t) => sum + t.amount, 0)
+                      const net = gained - lost
+                      if (net > 0) return <div style={{ color: '#4ade80', fontWeight: 'bold' }}>{drawerLabel} nhận được: ${net}</div>
+                      if (net < 0) return <div style={{ color: '#f87171', fontWeight: 'bold' }}>{drawerLabel} bị trừ: ${-net}</div>
+                      return <div style={{ color: '#9ca3af' }}>Không có tiền đổi chủ.</div>
                     })()}
                   </div>
                 )}

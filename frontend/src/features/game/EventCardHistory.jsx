@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { useGameStore } from '../../store/gameStore'
-import { getEventCards, getRoom } from '../../network/api'
+import { getRoom } from '../../network/api'
 import styles from './EventCardHistory.module.css'
 
 // "Thẻ đã rút" — re-read a Cơ Hội / Khí Vận card after its modal has gone
@@ -30,17 +30,14 @@ export default function EventCardHistory() {
   const { user, session } = useAuth()
   const roomId = useGameStore((s) => s.roomState?.roomId)
   const log = useGameStore((s) => s.eventCardLog)
+  // Card dictionary from the store (2026-09-03) — one shared session fetch in
+  // socketClient.js. A miss just means the id-based fallback text below; this
+  // panel is pure history and never blocks anything.
+  const cards = useGameStore((s) => s.eventCards)
 
-  const [cards, setCards] = useState({})
   const [displayNames, setDisplayNames] = useState({})
   const [open, setOpen] = useState(false)
   const [expandedSeq, setExpandedSeq] = useState(null)
-
-  useEffect(() => {
-    getEventCards(session.access_token)
-      .then((data) => setCards(data.cards ?? {}))
-      .catch(() => {}) // same posture as EventCardModal: a fetch failure just means text is unavailable, never a crash
-  }, [session.access_token])
 
   useEffect(() => {
     if (!roomId) return

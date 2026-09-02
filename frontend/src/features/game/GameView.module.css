@@ -123,9 +123,23 @@
    of the shell (2026-08-30 bug report: the event-card modal rendering
    half-off-screen at the bottom instead of centred). The modals carry their
    own `position: fixed` + z-index 40–60 and already paint above the shimmer. */
+/* 2 — above `.body` (1), below every overlay (lowest is 20).
+   Was briefly 50, which fixed the forfeit dialog rendering under the board
+   (the dialog is nested INSIDE this topbar, so it was capped at whatever the
+   topbar resolved to) but broke six others in exchange: every `position:
+   fixed` modal that is a direct child of `.shell` and sits below 50 —
+   TradeWindow 40, EventCardModal 45, PropertyManager 45, EventCardHistory 48,
+   LiquidationPanel 48, PropertyActionDrawer 20, RentRiskChoice 20 — then had
+   this header painting on top of its backdrop, with "Đầu Hàng"/"Đăng xuất"
+   left clickable over an open modal.
+   The forfeit dialog no longer needs it: it is portalled to <body>
+   (ForfeitButton.jsx), so it escapes this stacking context entirely rather
+   than trying to out-rank the board from inside it. 2 keeps the one thing
+   z-index 1 could not do — beating `.body`, which is also 1 and later in the
+   DOM — without entering the modals' range at all. */
 .shell > .topbar {
   position: relative;
-  z-index: 50;
+  z-index: 2;
 }
 
 .shell > .body {

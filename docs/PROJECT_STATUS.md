@@ -1903,6 +1903,159 @@ User screenshot: the confirm dialog painting under the 3D board, text and button
 
 **The general rule this codebase keeps re-learning:** a `z-index` is only ever compared against siblings inside the *nearest stacking context*. When an overlay renders behind something it should cover, the question is never "is the number big enough" but "which stacking context is this number being resolved in".
 
+## "Some event cards don't do their thing" — 2026-09-02
+
+User report. Audited the whole system rather than guessing, and the engine turned out to be entirely clean — the defect was a result readout that lied.
+
+### The engine is fine — proven, not assumed
+Two throwaway harnesses drove every card through the real state machine:
+
+1. **Draw path** — all **28** cards, each dealt from a stacked deck onto a real landing, diffing every field a card could plausibly touch (both players' cash, Bank cash, position, jail, jail cards, inventory, build/rent discounts, rent & build modifiers, protection, jackpot, ownership/levels). **Every card produced its effect. Zero dead cards.** Each card's own `eligibility` gate was satisfied first, so "no effect" could never just mean "correctly gated out".
+2. **Inventory path** — the four `keepable` cards (`VE_SO_TRUNG_AN_UI`, `C07_GIAM_GIA_XAY_DUNG`, `C08_BAO_VE_TAI_SAN`, `C12_CO_HOI_CUOI`) do **not** resolve on draw; they bank into `inventory` and only act when played via `USE_INVENTORY_CARD`. Drove all four, and all three of C12's options, through that path too. **All worked.**
+
+Also cleared along the way: every intent action the deck declares has a handler (19 distinct actions, none orphaned); `cardEligible` handles all three gate shapes in use (`lt`, `gte`, `OWNS_PROTECTABLE_PROPERTY`); `serverGeneratedFields` injects `probabilityRoll`/`dieFaceRoll` for **both** `MAKE_EVENT_CHOICE` and `USE_INVENTORY_CARD`; `GET /api/v1/event-cards` returns `EVENT_CARDS` verbatim; the old hand-maintained `frontend/.../eventCardDictionary.js` mirror (a documented drift hazard) is gone; and `CardInventory.jsx` correctly gives option-less keepable cards their own "Sử dụng thẻ" button rather than deriving buttons only from an empty `options` array.
+
+### The actual bug: the die-face result panel read fields that do not exist
+`EventCardModal.jsx` computed the card's outcome from `t.toPlayerId` / `t.fromPlayerId`. A transaction on the wire has **`toGamePlayerId` / `fromGamePlayerId`** (`economy/applyTransaction.js`) — `fromPlayerId`/`toPlayerId` is `ledgerFormat.js`'s *separate, already-mapped* entry shape, produced by `buildLedgerEntries`. Both filters therefore matched nothing, `net` was always `0`, and the panel announced **"Không nhận được thêm tiền!"** on every die-face card — including a $300 win.
+
+That is exactly the reported symptom: the two dice cards, **C05 "Cơ Hội Đầu Tư"** and **C11 "Cú Đánh Liều"**, looked like they did nothing. The money had moved correctly the whole time; only the readout was wrong. The `.amounts` block **twelve lines below in the same file** already used the correct field names — a one-file, one-block inconsistency.
+
+Also compared against `drawer` rather than `me`: the panel is not gated on `isMyTurn`, so a spectator was measuring the wrong player's money.
+
+### Second defect in the same block
+The panel rendered whenever the card *has* any die-face option — not whether the chosen one rolled. Picking C05's safe option (no roll) still showed it, displaying the **movement dice from earlier in the turn** as if they were the card's result. `handleEventChoice` only overwrites `lastRoll` when a roll actually happened, synthesising it as `{die1: face, die2: 0}`, while a real movement roll always has both dice in 1..6 — so the panel is now gated on `lastRoll.die2 === 0`.
+
+### Note
+Both defects are in a block whose style (inline `style={{…}}`, different formatting from the rest of the file) marks it as recent work from the parallel session — consistent with the user seeing this only now. Frontend lint + build clean; no backend change was needed.
+
+**Fourth consecutive defect at the same boundary:** a correct server result that the client discarded, mis-gated, or mis-described. The engine being right and the suite being green keeps not being enough.
+
+### Two things found when asked "is everything fixed?" — 2026-09-02
+
+#### Fixed: the topbar z-index bump was overlaying six modals
+While the forfeit dialog was being portalled (above), `.shell > .topbar` was independently raised from `z-index: 1` to **50** — a reasonable attempt at the same bug from the other direction, since the dialog is nested *inside* the topbar and was capped by it. But 50 lands in the middle of the modal range, so every `position: fixed` overlay below it started rendering **under the header**: TradeWindow 40, EventCardModal 45, PropertyManager 45, EventCardHistory 48, LiquidationPanel 48, PropertyActionDrawer 20, RentRiskChoice 20. In practice the header — including **"Đầu Hàng" and "Đăng xuất"** — sat on top of an open modal's backdrop and stayed clickable.
+
+Set to **2** instead: above `.body` (which is 1 and later in the DOM — the one thing z-index 1 genuinely could not do), below every overlay. The forfeit dialog does not need the height any more, since the portal takes it out of this stacking context entirely. Verified in the built CSS (`_topbar_…{z-index:2`), not just the source.
+
+#### NOT fixed, flagged: the auction starting-price input does nothing
+`PropertyActionDrawer.jsx` now renders a **"Giá khởi điểm đấu giá"** number input above the "Mở sàn" button. The value is held in local state and never leaves the component — the button calls `act('FORCE_AUCTION')`, and `act` sends `{ propertyId }` only. The server would ignore it regardless: `handleForceAuction` derives everything from the tile, `calculateAuctionFee(tile.price)` and `startAuction(property.id, tile.price, …)`, with no custom-open-price parameter anywhere in the contract.
+
+So a player can type a starting price, see it accepted, and have the auction open at the printed price every time. **Left alone deliberately** — this is a half-built feature from the parallel session (its own comment dates it 2026-09-02) and finishing it means a real design decision plus a backend change (`WEBSOCKET_API.md`'s `FORCE_AUCTION` payload is `{}` today), not a bug fix. It also interacts with the heads-up auction economics measured above: a custom opening price is one of the levers that discussion considered and the user closed.
+
+## FORCE_AUCTION opening price: finished, and a crash found on the way — 2026-09-03
+
+Asked to finish the "Giá khởi điểm đấu giá" input the parallel session had left half-built.
+
+### A live crash in the same block
+`currentAuctionFee` and `cannotAffordAuction` were **read by the JSX and never declared anywhere** — a `ReferenceError` thrown while rendering `AWAITING_PURCHASE`, i.e. every single time any player landed on an unowned buyable tile. `oxlint` did not flag it and the build does not do that analysis, so both passed clean over a component that could not render. Defined properly, alongside the opening-price band, in one place the three call sites share.
+
+### What the feature does now
+`FORCE_AUCTION` takes an optional integer `basePrice`. Omitted → opens at the printed price, exactly the old behaviour. Supplied → must be inside **`[ceil(price × 0.5), price]`**, else `INVALID_BASE_PRICE`.
+
+Three decisions worth recording, because none of them is obvious:
+
+- **The floor is the load-bearing one.** With no floor a host could open a $400 lot at $1. Heads-up that is only self-harm — the Broker rule bars them from bidding, so they would be gifting their opponent — but at 3+ players it is a **collusion tool**: open low, let an ally take it for pocket change. Rival bidders can compete the price back up, which dampens it, but nothing guarantees they are solvent at that moment. `MIN_AUCTION_OPEN_RATIO = 0.5` is deliberately **V0's own original fixed opening bid**, reused rather than invented, so the number has a precedent in this game rather than being a fresh guess.
+- **The ceiling is cheap insurance.** Opening above the printed price cannot attract a bid the printed price would not; it only manufactures a guaranteed FAILED auction that still burns the fee — and skipping the purchase already does that for free.
+- **The fee is charged on the printed price, never on the chosen opening.** The half-built version computed `calculateAuctionFee(basePrice)`, so discounting the opening quietly discounted the host's own cost too: the auction most generous to the buyer would also have been the cheapest one to run. The fee prices the *service*, which is identical whatever the host opens at. This has its own regression test.
+
+Also fixed: `handleForceAuction`'s signature already took `action`, but the dispatch call site passed only two arguments, so `action` was permanently `undefined` and the field could never have arrived even once the client sent it.
+
+### Coverage
+Five new backend tests (in-band value honoured; discount does not touch the fee; below-floor rejected including the exact off-by-one at `floor − 1`; above-printed and non-integer rejected; omitting it still opens at the printed price). **702 pass / 0 fail.** `INVALID_BASE_PRICE` added to `actionErrors.js` — the mechanical server-vs-dictionary diff is back to **43/43, none missing**. Client clamps to the same band and sends the clamped value, so a half-typed number can never become a rejected action; clamping happens on blur, not per keystroke, because clamping as you type makes the field impossible to edit. `WEBSOCKET_API.md` (payload + error taxonomy) and `BOARD_SPECIFICATION.md` updated.
+
+This is the lever the heads-up measurement identified — at 2 players 88% of forced auctions failed because the sole eligible bidder could not afford `printed + $10` — now available to players rather than as a global rule change, which is what the user had closed.
+
+## "No way to use a kept card" — 2026-09-03
+
+User could not find any path to play a `keepable` card. Checked the whole chain before changing anything; **no hard functional break exists in the play path**:
+
+- `USE_INVENTORY_CARD` is accepted by the server in **all 9 phases, on anyone's turn** (probed each combination directly) — it is in `TURN_INDEPENDENT_ACTION_TYPES` and never phase-gated, so nothing server-side ever refuses it.
+- All four keepable cards, and all three of C12's options, resolve correctly through it (audited the day before).
+- `CardInventory` is mounted in GameView's right rail — the "THẺ SỰ KIỆN" panel visible in the user's own screenshot — expanded by default, and builds correct payloads (`optionId` for CHOICE cards, `propertyId` for the protection card, plain `{cardId}` for the option-less ones).
+- `GET /api/v1/event-cards` is wired behind `authMiddleware` in `app.js` and returns `EVENT_CARDS` verbatim.
+
+So the defect is not "the action fails" — it is that the path is invisible, and that one failure mode removes it silently.
+
+### 1. The hand had no affordance
+Each card rendered as an icon + text row, visually identical to the read-only chips in the panels stacked above it (`MyPortfolio`, and the `Ledger` below). Nothing indicated a row was clickable, and the play controls appeared **only after** clicking — in a detail block further down a rail that is itself `overflow-y: auto`. A player scanning that column has no reason to think the list does anything. Added a `Dùng ▸` cue pinned to the right edge of each row (flipping to `▾` when open) and a one-line "Chạm vào một thẻ để dùng nó." above the hand.
+
+### 2. A failed dictionary fetch killed the panel silently
+`getEventCards`'s handler was `.catch(() => {})`, annotated "real card text stays unavailable; the id-based fallback below still renders". The hand does still render — `c?.text ?? cardId` — but `openCard` is looked up as `cardsData[openCardId]`, so with an empty map **clicking a card opens nothing at all**. The result is precisely the reported symptom: a visible list of cards that cannot be used, with no error, no retry, and nothing on screen suggesting anything had gone wrong. A single transient 401 or network blip on mount was enough, permanently, for the life of the component.
+
+Now tracked as `loadFailed`: the panel says so plainly and offers a **Thử lại** button (a `reloadNonce` in the effect's dependency array re-runs the fetch). The effect also got a `cancelled` guard so a late response cannot write into an unmounted component.
+
+### Note on confidence
+Neither fix is verifiable from here — reaching a live inventory needs a real multiplayer session with Supabase auth, which this project's own rules keep off the dev database. The chain above was verified by probing the engine directly and by reading every link; what could not be verified is which of the two the user actually hit. Both are real defects either way.
+
+## The game now proposes a card when the moment calls for it — 2026-09-03
+
+User request: *"hãy có phép hệ thống tự đề xuất cho người chơi nếu vào tình huống cần dùng thẻ, ví dụ như khi vào tù mà đang có thẻ ra tù"*.
+
+### Why the jail example is worse than it looks
+The deck has **two different jail mechanisms**, and only one of them was reachable:
+- `C09_LUAT_SU` is *not* keepable — it increments `jailFreeCards` the instant it is drawn, and GameControls' jail row already has a button bound to that counter.
+- `VE_SO_TRUNG_AN_UI` **is** keepable. Holding it does **not** give you a jail card. You must play it out of the inventory first, which grants the counter, and only then can you spend it to leave. Two steps, in two different panels, with nothing linking them.
+
+So a jailed player could be holding their own way out and have no way to find that out. That is the gap this closes.
+
+### New `cardSuggestions.js`
+A pure function returning which held cards are worth playing *right now*, most pressing first. Matching is on the card's own **intents**, walked through options, probability branches and die-face tables — not on card ids. Ids would work for today's four keepable cards and then silently stop covering the fifth; that is the exact drift the deleted `eventCardDictionary.js` mirror was removed for.
+
+Rules, each firing only where the effect is **actionable now** rather than merely relevant someday:
+
+| Situation | Card | Urgency |
+|---|---|---|
+| In jail with **zero** jail cards | grants `GRANT_JAIL_CARD` | urgent |
+| You are the debtor in `LIQUIDATION_REQUIRED` | has an `ADD_MONEY` outcome | urgent |
+| A hostile buyout is pending **against your own unimproved lot** | grants `GRANT_PROPERTY_PROTECTION` | urgent |
+| You are being offered a build and have no discount active | grants `GRANT_NEXT_BUILD_DISCOUNT` | hint |
+
+The protection rule is worth noting: it fires on **someone else's turn**, which is legal precisely because `USE_INVENTORY_CARD` is turn-independent (`TURN_INDEPENDENT_ACTION_TYPES`) — a defence the player had no way of knowing was available.
+
+Protection is deliberately *not* suggested merely for owning something unimproved, and the build hint is deliberately quiet: this panel is on screen every single turn, so a nag there costs more than a missed discount.
+
+### Surfacing
+`CardInventory` shows the prompt with a **"Mở thẻ này"** button that opens the card directly, so the play controls are one click from the suggestion. An urgent suggestion also **forces the panel open** — recorded per card id, so collapsing it dismisses that one suggestion without suppressing the next, genuinely different one, and the collapse control never appears broken by springing back open. Suggested cards carry a ★ in the hand so the prompt and the row it refers to are visibly the same thing.
+
+### Verified
+All ten scenarios driven against the real `EVENT_CARDS`, including **five negative cases** — already holding a jail card, not in jail, someone *else* liquidating, a buyout aimed at a lot that is not yours, a build discount already active. None of them produces a suggestion.
+
+### Known limit
+The prompt lives in the Card Inventory panel in the right rail, **not inside the jail dialog itself**. Putting it there needs the card dictionary in the store — `EventCardModal` and `CardInventory` currently fetch `/api/v1/event-cards` independently, so GameControls would be a third copy. Worth doing as a small cleanup, not smuggled into this change.
+
+## Kept cards are now genuinely usable — 2026-09-03
+
+User asked twice, and the honest answer to the first ask was "no". A `keepable` card did nothing on draw, the play path was a side-rail panel with no affordance, and the sharpest case — sitting in jail holding your own way out — made the player leave the jail dialog, find a different panel, play the card there, and come back. This closes that.
+
+### The card dictionary now lives in the store
+`GET /api/v1/event-cards` was fetched **independently by three components** (EventCardModal, CardInventory, EventCardHistory) and GameControls would have been a fourth. Each was its own failure point with its own `.catch(() => {})`. Moved to `gameStore.eventCards`, fetched once per session in `socketClient.js` by `ensureEventCardsLoaded()` — the exact pattern `ensureStaticBoardLoaded()` already uses, including the free retry: it runs on every `S2C_STATE_UPDATE`, guards on "map is non-empty", so a failed fetch simply succeeds on the next broadcast. All four components now read one shared copy. The retry machinery I had added to CardInventory the day before (`loadFailed` / `reloadNonce` / a manual "Thử lại" button) is gone — the store handles it.
+
+### The jail dialog now offers the card directly
+`VE_SO_TRUNG_AN_UI` grants a Get-Out-of-Jail card, but only once played from the hand — holding it does nothing. `GameControls`' `JAIL_DECISION` block now shows a **"Dùng thẻ trong kho → Thẻ Ra Tù"** button whenever the player is jailed, holds such a card, and has no `jailFreeCards`. One click plays it; the existing "Dùng Thẻ Miễn Phí" button then frees them. The match is on the card's **intents** (`GRANT_JAIL_CARD`, walked through options too), reusing `suggestCards()` — not the card id, so a second jail card added later works with no change here.
+
+The old "Dùng Thẻ Miễn Phí" tooltip was also wrong: it said the card is obtained *only* "khi rút được lá Cơ Hội/Khí Vận may mắn", never mentioning the inventory route. Fixed, and when a usable inventory card is held it now points at the new button.
+
+### Verified
+`suggestCards` + the `jailCardInHand` derivation driven against the real `EVENT_CARDS`: fires for "jailed, 0 cards, holding VE_SO"; stays silent for already-has-a-card, holds-a-non-jail-card, empty hand, and not-in-jail. Backend 707/707 (unchanged — this is all client + store). Frontend lint + build clean.
+
+### Still not done
+The build-discount / liquidation / buyout-protection suggestions still live only in the Card Inventory panel, not beside the relevant control (the build offer, the liquidation panel). The jail case got the inline treatment because it is the one where the player is looking at a modal that occupies the screen. The others are lower-stakes and the rail prompt is adequate; inlining each is a per-surface decision, not a blanket one.
+
+## Deck re-verified after the middleware change — 2026-09-03
+
+The concurrent session wired `calculateFinalRent` (calculateRentMiddleware.js) into the `PAYING_RENT` path and `resolveMovement` (movementMiddleware.js) into a new `handlePlayMovementCard`. Both are for a future `ASYMMETRIC` ruleset; for `ruleset === 'CLASSIC'` (what is live) `calculateFinalRent` returns `calculateRent(...)` verbatim and `resolveMovement` delegates straight to `movePlayer`. Re-ran the full deck check to confirm nothing regressed:
+
+- **All 28 event cards on draw** — every one produces a state change, none throws. The K-series economy cards (K01/K02 rent modifier, K03/K04/K06/K09/K10/K12 multi-player transfers, K07/K08 build-cost modifier), the movement cards (C01 Lối Tắt all 3 options, C02, CHAY_QUA_TOC_DO), and the die-face cards (C05, C11) all still resolve correctly. The K01/K02 `rentModifierPercent` multiply and C12-C's `nextRentDiscount` are still applied around the swapped `calculateFinalRent` call.
+- **All 4 keepable cards from the inventory** (VE_SO_TRUNG_AN_UI, C07, C08, C12) plus all 3 of C12's options — each produces its effect.
+
+**Verdict: the non-keepable card groups are stable.** Nothing dead, nothing broken by the middleware.
+
+### One design observation, not a bug
+The user listed **C09_LUAT_SU as a keepable card**. It is not — `C09` is `INSTANT` and grants `jailFreeCards` the moment it is drawn. `VE_SO_TRUNG_AN_UI` is the keepable one; it banks into the inventory and grants the same `jailFreeCards + 1` only once played from the hand (identical code path, `turnMachine.js:459`). So the two cards have the **same net effect** — a Get-Out-of-Jail card — but VE_SO carries an extra manual step. Whether that friction is intentional flavour ("a voucher you hold") or should be unified is a design call, flagged for the user, not changed.
+
+### Out of scope: the ASYMMETRIC movement-card feature
+`handlePlayMovementCard` (turnMachine.js ~1560), `MOVEMENT_CARDS`, `player.movementHand`, and the trap logic in `movementMiddleware.js` are an unfinished parallel-session feature (`steps = cardDef.steps > 0 ? cardDef.steps : 1; // Tạm mock`, and raw `throw new Error(...)` instead of a typed error class so `errorCodeFor` would map it to `INTERNAL_ERROR`). Not touched — it is theirs and not part of the event-card system.
+
 ## Known gaps flagged in `SECURITY_DESIGN.md` (not yet closed)
 
 1. ~~`build_house`/`sell_house`/`mortgage`/`unmortgage`/`propose_trade`/`respond_trade` have no Socket.IO event handlers yet~~ — **fully closed 2026-08-18** (all six), see "Backend slice — property economy" and "Backend slice — Trade System" above.

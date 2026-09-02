@@ -135,6 +135,11 @@ const ERRORS = {
     title: 'Ô này vẫn còn nhà',
     body: 'Chỉ cầm cố được ô không có công trình. Bán hết nhà trên chính ô này trước đã (các ô khác trong nhóm không ảnh hưởng). Lưu ý: cầm cố bất kỳ ô nào trong nhóm sẽ làm mất thưởng ×2 độc quyền cho tới khi chuộc lại.',
   },
+  INVALID_BASE_PRICE: {
+    tone: 'rule',
+    title: 'Giá khởi điểm không hợp lệ',
+    body: 'Giá khởi điểm phải là số nguyên, thấp nhất là một nửa giá niêm yết và cao nhất là đúng giá niêm yết. Hạ thấp hơn nữa sẽ thành cách tuồn đất giá rẻ cho người khác, còn đặt cao hơn giá gốc thì chắc chắn không ai mua mà bạn vẫn mất phí mở sàn.',
+  },
   ALREADY_MORTGAGED: {
     tone: 'rule',
     title: 'Ô này đang cầm cố',

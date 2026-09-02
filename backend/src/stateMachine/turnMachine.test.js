@@ -279,6 +279,64 @@ test('FORCE_AUCTION: charges the auction fee and starts a Flash Auction (V2)', (
   assert.equal(after.properties.find((p) => p.boardTileId === 't2').ownerId, null); // not transferred yet
 });
 
+// --- Custom opening price (2026-09-03) ---
+// Station A is price 200, so the allowed band is [ceil(200*0.5), 200] = [100, 200]
+// and the fee is calculateAuctionFee(200) = 20.
+test('FORCE_AUCTION: a custom opening price inside the allowed band opens the auction there', () => {
+  let state = { ...baseGameState(), phase: 'ROLLING' };
+  ({ gameState: state } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 1) }));
+  const { gameState: after } = transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: 120 } });
+
+  assert.equal(after.pendingAuction.basePrice, 120);
+  assert.equal(after.pendingAuction.currentBid, 120); // opening bid follows it
+});
+
+test('FORCE_AUCTION: discounting the opening price does NOT discount the fee', () => {
+  // The whole point of charging the fee on the printed price: otherwise the
+  // most buyer-generous auction would also be the cheapest one to run.
+  let state = { ...baseGameState(), phase: 'ROLLING' };
+  ({ gameState: state } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 1) }));
+  const { gameState: after, transactions } = transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: 100 } });
+
+  assert.equal(transactions[0].amount, 20); // fee still 5% of the PRINTED 200, clamped to the $20 floor
+  assert.equal(after.players.find((p) => p.id === 'gp-alice').currentBalance, 1500 - 20);
+  assert.equal(after.pendingAuction.basePrice, 100);
+});
+
+test('FORCE_AUCTION: an opening price below half the printed price is rejected (INVALID_BASE_PRICE)', () => {
+  // The collusion case the floor exists for: open a $200 lot at $1 so an ally
+  // takes it for pocket change.
+  let state = { ...baseGameState(), phase: 'ROLLING' };
+  ({ gameState: state } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 1) }));
+  assert.throws(
+    () => transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: 1 } }),
+    (err) => err instanceof InvalidPropertyActionError && err.reason === 'INVALID_BASE_PRICE'
+  );
+  assert.throws(
+    () => transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: 99 } }), // one under the floor
+    (err) => err instanceof InvalidPropertyActionError && err.reason === 'INVALID_BASE_PRICE'
+  );
+});
+
+test('FORCE_AUCTION: an opening price above the printed price, or a non-integer, is rejected', () => {
+  let state = { ...baseGameState(), phase: 'ROLLING' };
+  ({ gameState: state } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 1) }));
+  for (const bad of [201, 1000, 150.5]) {
+    assert.throws(
+      () => transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: bad } }),
+      (err) => err instanceof InvalidPropertyActionError && err.reason === 'INVALID_BASE_PRICE',
+      `basePrice ${bad} should have been rejected`
+    );
+  }
+});
+
+test('FORCE_AUCTION: omitting basePrice still opens at the printed price (unchanged default)', () => {
+  let state = { ...baseGameState(), phase: 'ROLLING' };
+  ({ gameState: state } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 1) }));
+  const { gameState: after } = transitionTurn(state, board, { type: 'FORCE_AUCTION' });
+  assert.equal(after.pendingAuction.basePrice, 200);
+});
+
 test('FORCE_AUCTION, insufficient balance: throws instead of silently skipping (V2)', () => {
   const poor = {
     ...baseGameState(),

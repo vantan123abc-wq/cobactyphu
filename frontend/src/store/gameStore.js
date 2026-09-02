@@ -36,6 +36,15 @@ export const useGameStore = create((set) => ({
   offlinePlayerIds: [],
   lastError: null, // most recent S2C_ACTION_REJECTED payload — diagnostic visibility only
   staticBoard: null, // { boardId, tiles[] } from GET /api/v1/boards/:boardId, or null until fetched
+  // Event-card dictionary — { [cardId]: card }, from GET /api/v1/event-cards.
+  // Match-static (a plain JS constant server-side), so it is fetched once per
+  // session like staticBoard, in socketClient.js, not per-component. Was three
+  // separate local fetches before 2026-09-03 (EventCardModal, CardInventory,
+  // and GameControls would have been a fourth) — each an independent failure
+  // point, and any one failing silently degraded that panel; consolidating
+  // them also lets GameControls' jail decision see which inventory card can
+  // free the player without a fetch of its own.
+  eventCards: {},
   selectedPropertyId: null, // properties.id (game-scoped ownership row) of the board tile the local player last clicked — P11-T09, PropertyManager.jsx's data source
   tradeDraftTargetId: null, // PlayerGameState.id of the opponent a fresh trade proposal is being drafted against — P11-T10, TradeWindow.jsx. Only meaningful while no real Trade in gameState.pendingTrades involves the local player yet; TradeWindow.jsx clears this itself once PROPOSE_TRADE's real trade shows up server-side
 
@@ -154,6 +163,8 @@ export const useGameStore = create((set) => ({
   setLastError: (lastError) => set({ lastError }),
 
   setStaticBoard: (staticBoard) => set({ staticBoard }),
+
+  setEventCards: (eventCards) => set({ eventCards }),
 
   // Prepends (newest-first, matching the reference feed's own ordering) and
   // caps at 50 — a whole-match log with no cap would grow unbounded over a

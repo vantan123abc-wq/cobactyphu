@@ -163,8 +163,10 @@
 // decision BUILD_HOUSE already made for the identical underlying condition.
 
 import { movePlayer } from '../engine/movement.js';
+import { resolveMovement } from '../engine/movementMiddleware.js';
+import { MOVEMENT_CARDS, drawMovementHand } from '../domain/movementDictionary.js';
 import { resolveTile, BUYABLE_TILE_TYPES } from '../engine/resolveTile.js';
-import { calculateRent } from '../engine/calculateRent.js';
+import { calculateFinalRent } from '../engine/calculateRentMiddleware.js';
 import { checkSolvency } from '../engine/bankruptcy.js';
 import { sendToJail, JAIL_FINE, useCard, rollForExit } from '../engine/jail.js';
 import { applyTransaction } from '../economy/applyTransaction.js';
@@ -200,6 +202,14 @@ const PASS_GO_SALARY = 200; // GAME_DESIGN_SPEC.md §0, PROPOSED classic value
 // to change — ~90% of payouts are untouched.
 const FREE_PARKING_JACKPOT_CAP = 600;
 const HOSTILE_BUYOUT_MULTIPLIER = 2; // Phase 14 (2026-08-19) brief's own explicit number — BOARD_SPECIFICATION.md's older sketch had proposed >=150%, superseded by this fresh, more precise instruction
+
+// Floor on FORCE_AUCTION's custom opening price, as a fraction of the tile's
+// printed price (2026-09-03). Deliberately V0's original fixed opening bid
+// (BOARD_SPECIFICATION.md's "V0 -> V1: opening bid changed from 50% to 100%")
+// rather than a fresh number: the game has already treated half price as a
+// reasonable place to start an auction. See handleForceAuction for why the
+// floor exists at all — without one, "open at $1" is a collusion tool.
+const MIN_AUCTION_OPEN_RATIO = 0.5;
 
 export class InvalidTurnActionError extends Error {
   constructor(phase, actionType) {
@@ -280,6 +290,7 @@ const VALID_ACTIONS_BY_PHASE = Object.freeze({
   TURN_START: ['START_TURN'],
   JAIL_DECISION: ['PAY_JAIL_FINE', 'USE_JAIL_CARD', 'ATTEMPT_JAIL_ROLL'],
   ROLLING: ['ROLL_DICE'],
+  PLAYING_CARD: ['PLAY_MOVEMENT_CARD'],
   AWAITING_PURCHASE: ['BUY_PROPERTY', 'SKIP_PURCHASE', 'FORCE_AUCTION', 'DECLINE_PURCHASE'], // DECLINE_PURCHASE kept as backward-compat alias for SKIP_PURCHASE
   AWAITING_UPGRADE: ['BUILD_HOUSE', 'DECLINE_UPGRADE'],
   FLASH_AUCTION_ACTIVE: ['PLACE_BID', 'FOLD_AUCTION', 'AUCTION_TIMEOUT'],
@@ -988,7 +999,7 @@ function resolveForfeit(gameState, boardTiles, action, now) {
     // advanceTurn() returns its own fresh (always-empty) transactions array
     // — merged here, not returned directly, or the bankruptcy transfer(s)
     // just accumulated above would silently vanish from the response.
-    const advanced = advanceTurn({ ...state, lastRollWasDouble: false }, boardTiles, now);
+    const advanced = advanceTurn({ ...state, lastRollWasDouble: false, currentDoublesStreak: 0 }, boardTiles, now);
     return { gameState: advanced.gameState, transactions: [...transactions, ...advanced.transactions] };
   }
 
@@ -1033,7 +1044,7 @@ function finishAfterBankruptcy(gameState, boardTiles, transactions, now, bankrup
   if (bankruptPlayerId != null && getCurrentPlayer(state)?.id === bankruptPlayerId) {
     // No bonus turn survives an elimination — lastRollWasDouble is cleared
     // first, the same rule resolveForfeit and an escaped-jail roll follow.
-    const advanced = advanceTurn({ ...state, lastRollWasDouble: false }, boardTiles, now);
+    const advanced = advanceTurn({ ...state, lastRollWasDouble: false, currentDoublesStreak: 0 }, boardTiles, now);
     return { gameState: advanced.gameState, transactions: [...transactions, ...advanced.transactions] };
   }
 
@@ -1135,7 +1146,7 @@ function resolveLiquidationStep(gameState, transactions, boardTiles, now) {
   );
 
   if (onSettled === 'RELEASE_TO_ROLLING') {
-    return { gameState: { ...stateAfterRelease, phase: 'ROLLING' }, transactions: settledTransactions };
+    return { gameState: { ...stateAfterRelease, phase: stateAfterRelease.ruleset === 'ASYMMETRIC' ? 'PLAYING_CARD' : 'ROLLING' }, transactions: settledTransactions };
   }
 
   // The forced 3rd-attempt exit, settled late (the debtor had to liquidate
@@ -1206,14 +1217,16 @@ function resolveLanding(gameState, boardTiles, playerId, diceTotal, now) {
     case 'PAYING_RENT': {
       const owner = gameState.players.find((p) => p.id === property.ownerId);
       const payer = gameState.players.find((p) => p.id === playerId);
-      const baseRent = calculateRent({
-        targetTile: tile,
-        targetProperty: property,
-        ownerHoldings: holdingsFor(gameState, boardTiles, owner.id),
-        groupTiles: tile.groupId ? boardTiles.filter((t) => t.groupId === tile.groupId) : undefined,
-        diceRoll: diceTotal,
-        ruleset: gameState.ruleset,
-      });
+      const baseRent = calculateFinalRent(
+        gameState,
+        payer.id,
+        owner.id,
+        tile,
+        property,
+        holdingsFor(gameState, boardTiles, owner.id),
+        tile.groupId ? boardTiles.filter((t) => t.groupId === tile.groupId) : undefined,
+        diceTotal
+      );
       // K01/K02 (2026-08-22 deck) — GameState.rentModifierPercent's own
       // global/round-scoped modifier, layered on here rather than inside
       // calculateRent.js itself (that function stays pure/untouched).
@@ -1539,6 +1552,82 @@ function resolveDrawingCard(gameState, boardTiles, playerId, now) {
  * starts its own doublesStreak at 0, so a single roll can never reach the
  * 3rd-consecutive-double threshold there.
  *
+ * @param {import('../domain/gameState.js').GameState} gameState
+ * @param {import('../domain/tile.js').Tile[]} boardTiles
+ * @param {object} action
+ * @param {string} [now]
+ */
+function handlePlayMovementCard(gameState, boardTiles, action, now) {
+  const { cardId } = action.payload;
+  const player = getCurrentPlayer(gameState);
+
+  if (!player.movementHand || !player.movementHand.includes(cardId)) {
+    throw new Error('Bạn không có thẻ này trên tay!');
+  }
+
+  const cardDef = MOVEMENT_CARDS[cardId];
+  if (!cardDef) {
+    throw new Error(`Thẻ di chuyển không tồn tại: ${cardId}`);
+  }
+
+  // Lọc thẻ khỏi tay
+  const newHand = [...player.movementHand];
+  newHand.splice(newHand.indexOf(cardId), 1);
+  
+  // Trừ tiền nếu thẻ yêu cầu (VD: SPRINT_6 tốn 50)
+  let transactions = [];
+  let stateAfterCost = replacePlayer(gameState, { ...player, movementHand: newHand });
+
+  if (cardDef.cost > 0) {
+    const bank = getBankPlayer(stateAfterCost);
+    const { gameState: statePaid, transaction } = applyTransaction(stateAfterCost, {
+      fromPlayerId: player.id,
+      toPlayerId: bank.id,
+      amount: cardDef.cost,
+      transactionType: 'movement_card_cost',
+    });
+    stateAfterCost = statePaid;
+    transactions.push(transaction);
+  }
+
+  const boardTileCount = boardTiles.length;
+  // TODO: Xử lý thẻ RANDOM (xúc xắc ngẫu nhiên) ở frontend gửi lên, tạm thời assume steps > 0
+  const steps = cardDef.steps > 0 ? cardDef.steps : 1; // Tạm mock
+
+  const { newPosition, passedGo, stoppedByTrap } = resolveMovement(
+    stateAfterCost,
+    player.id,
+    steps,
+    cardDef.direction,
+    boardTileCount
+  );
+
+  // Giống như khúc dưới của moveAndResolve
+  let finalPlayer = stateAfterCost.players.find((p) => p.id === player.id);
+  finalPlayer = { ...finalPlayer, currentPosition: newPosition };
+  
+  let stateAfterMove = replacePlayer(stateAfterCost, finalPlayer);
+  
+  if (passedGo) {
+    const bank = getBankPlayer(stateAfterMove);
+    const { gameState: stateWithGo, transaction: goTx } = applyTransaction(stateAfterMove, {
+      fromPlayerId: bank.id,
+      toPlayerId: player.id,
+      amount: PASS_GO_SALARY,
+      transactionType: 'pass_go',
+    });
+    stateAfterMove = stateWithGo;
+    transactions.push(goTx);
+  }
+
+  const landing = resolveLanding(stateAfterMove, boardTiles, finalPlayer.id, now);
+  return {
+    gameState: landing.gameState,
+    transactions: [...transactions, ...landing.transactions],
+  };
+}
+
+/**
  * `now` (Win Condition design, 2026-08-19) is newly threaded all the way
  * down from transitionTurn's own `now` param, through here, to
  * resolveLanding/settleDebt — landing on a rent/tax tile can now end the
@@ -1657,10 +1746,22 @@ function rollToDisplay({ die1, die2, total, isDouble }) {
  * — it has no decision point of its own either way.
  */
 function startTurn(gameState) {
-  const player = getCurrentPlayer(gameState);
+  let player = getCurrentPlayer(gameState);
+  let state = gameState;
+
+  // Tự động rút thêm thẻ nếu là Đột Phá và tay bài chưa đủ 3
+  if (gameState.ruleset === 'ASYMMETRIC') {
+    const currentHand = player.movementHand || [];
+    if (currentHand.length < 3) {
+      const drawnCards = drawMovementHand().slice(0, 3 - currentHand.length);
+      player = { ...player, movementHand: [...currentHand, ...drawnCards] };
+      state = replacePlayer(state, player);
+    }
+  }
+
   return {
-    ...gameState,
-    phase: player.inJail ? 'JAIL_DECISION' : 'ROLLING',
+    ...state,
+    phase: player.inJail ? 'JAIL_DECISION' : (state.ruleset === 'ASYMMETRIC' ? 'PLAYING_CARD' : 'ROLLING'),
     lastRollWasDouble: null,
     // lastRoll is deliberately NOT cleared here as of 2026-08-25 (user
     // request: "người chơi khác cũng thấy được xúc xắc của người chơi đang
@@ -1717,7 +1818,7 @@ function advanceTurn(gameState, boardTiles, now) {
   const state = { ...gameState, pendingHostileBuyoutPropertyId: null };
 
   if (state.lastRollWasDouble) {
-    return { gameState: { ...state, phase: 'ROLLING' }, transactions: [] };
+    return { gameState: { ...state, phase: state.ruleset === 'ASYMMETRIC' ? 'PLAYING_CARD' : 'ROLLING' }, transactions: [] };
   }
 
   const realPlayers = state.players.filter((p) => !p.isBank);
@@ -1803,7 +1904,7 @@ function handleJailAction(gameState, boardTiles, action, now) {
     }
     const released = useCard(player);
     const state = replacePlayer(gameState, { ...released, jailFreeCards: released.jailFreeCards - 1 });
-    return { gameState: { ...state, phase: 'ROLLING' }, transactions: [] };
+    return { gameState: { ...state, phase: state.ruleset === 'ASYMMETRIC' ? 'PLAYING_CARD' : 'ROLLING' }, transactions: [] };
   }
 
   // ATTEMPT_JAIL_ROLL
@@ -1921,7 +2022,7 @@ function payJailFineOrLiquidate(gameState, boardTiles, player, fineOwed, onSettl
     const withJackpot = feedFreeParkingJackpot(afterFine, 'jail_fine', fineOwed);
 
     if (onSettled === 'RELEASE_TO_ROLLING') {
-      return { gameState: { ...withJackpot, phase: 'ROLLING' }, transactions: [transaction] };
+      return { gameState: { ...withJackpot, phase: withJackpot.ruleset === 'ASYMMETRIC' ? 'PLAYING_CARD' : 'ROLLING' }, transactions: [transaction] };
     }
     if (onSettled === 'RELEASE_AND_MOVE') {
       // Released and moving on the roll that just failed. Streak forced flat
@@ -1990,8 +2091,44 @@ function handleForceAuction(gameState, boardTiles, action) {
   const property = gameState.properties.find((p) => p.boardTileId === tile.id);
   const bank = getBankPlayer(gameState);
 
-  const basePrice = action?.payload?.basePrice ?? tile.price;
-  const fee = calculateAuctionFee(basePrice);
+  // Custom opening price (2026-09-03). The host may DISCOUNT the opening bid
+  // to attract a bid, down to MIN_AUCTION_OPEN_RATIO of the printed price;
+  // omitting it opens at the printed price exactly as before.
+  //
+  // Bounded in both directions on purpose:
+  //   - Below the floor is the dangerous one. With no floor, a host could
+  //     open a $400 lot at $1. At a 2-player table that is only self-harm
+  //     (the Broker rule bars them from bidding, so they are gifting the
+  //     opponent), but with 3+ players it is a collusion tool: open low, let
+  //     an ally take it for a few dollars. Rival bidders can compete the
+  //     price back up, which dampens it, but nothing forces them to be
+  //     solvent at that moment. 50% is not an arbitrary number — it is V0's
+  //     original fixed opening bid (BOARD_SPECIFICATION.md), i.e. a level
+  //     this game has already accepted as reasonable.
+  //   - Above the printed price is refused because it has no upside for
+  //     anyone: it cannot attract a bid the printed price would not, and it
+  //     only manufactures a guaranteed FAILED auction that still burns the
+  //     fee. Skipping the purchase does the same thing for free.
+  const printedPrice = tile.price;
+  const minOpeningPrice = Math.ceil(printedPrice * MIN_AUCTION_OPEN_RATIO);
+  const requestedOpen = action?.payload?.basePrice;
+  let basePrice = printedPrice;
+  if (requestedOpen != null) {
+    if (!Number.isInteger(requestedOpen) || requestedOpen < minOpeningPrice || requestedOpen > printedPrice) {
+      throw new InvalidPropertyActionError(
+        'INVALID_BASE_PRICE',
+        `handleForceAuction: opening price ${requestedOpen} is outside the allowed range [${minOpeningPrice}, ${printedPrice}]`
+      );
+    }
+    basePrice = requestedOpen;
+  }
+
+  // Fee is charged on the PRINTED price, never on the chosen opening —
+  // otherwise discounting the opening would quietly discount the host's own
+  // cost of opening it, and the cheapest auction to run would always be the
+  // one most generous to the buyer. The fee prices the *service*, which is
+  // the same whatever the host opens at.
+  const fee = calculateAuctionFee(printedPrice);
   if (player.currentBalance < fee) {
     // 2026-09-02: was an InvalidTurnActionError, which socketServer.js's
     // errorCodeFor() maps to PHASE_MISMATCH — so a player who simply lacked
@@ -3140,12 +3277,15 @@ export function transitionTurn(gameState, boardTiles, action, now) {
     case 'ROLLING':
       return moveAndResolve(gameState, boardTiles, getCurrentPlayer(gameState).id, action.payload, now);
 
+    case 'PLAYING_CARD':
+      return handlePlayMovementCard(gameState, boardTiles, action, now);
+
     case 'AWAITING_PURCHASE':
       if (action.type === 'BUY_PROPERTY') {
         return handleBuyProperty(gameState, boardTiles, now);
       }
       if (action.type === 'FORCE_AUCTION') {
-        return handleForceAuction(gameState, boardTiles);
+        return handleForceAuction(gameState, boardTiles, action);
       }
       // SKIP_PURCHASE + DECLINE_PURCHASE (legacy alias) — both free, straight to POST_ACTIONS
       return handleSkipPurchase(gameState);
@@ -3211,5 +3351,6 @@ export function transitionTurn(gameState, boardTiles, action, now) {
       throw new InvalidTurnActionError(gameState.phase, action.type);
   }
 }
+
 
 
