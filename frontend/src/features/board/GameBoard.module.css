@@ -1,0 +1,522 @@
+/* P11-T02 — board grid. Reuses the app's existing CSS custom properties
+   (index.css: --text, --text-h, --bg, --border, --accent, --sans) instead
+   of a separate palette, so the board matches the rest of the app in both
+   light and dark mode (index.css already handles the mode switch at the
+   :root level — nothing extra needed here). No Tailwind, plain CSS Module. */
+
+/* Isometric board slice (2026-08-21) — user asked for a tilted,
+   perspective board (reference: a mobile board-game HUD with the board
+   rotated into a diamond and real depth, player's own balance top-right,
+   opponents stacked down the left — see PlayerHud.jsx for the HUD half).
+   Chose the "full CSS 3D isometric" option over a flat 2D 45° rotation
+   after flagging the tradeoff (harder to keep long tile names legible,
+   more fragile across browsers) — user picked it explicitly. */
+.viewport {
+  position: relative;
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  box-sizing: border-box;
+  /* Makes this element a size query container, so `.board` can size itself
+     from `100cqw`/`100cqh` — the container's own CONTENT box, tracked by the
+     layout engine itself (2026-08-23).
+
+     This replaces a JS ResizeObserver measurement that had just produced a
+     real user-visible bug: the board rendered at roughly a third of its
+     proper size. The measurement is taken when the element attaches, and at
+     that instant the surrounding flex/grid layout has not necessarily
+     settled — so it could capture a too-small box, and nothing reliably
+     corrected it afterwards (verified earlier in this same work that a
+     ResizeObserver can silently never deliver a callback at all). Container
+     query units have none of those failure modes: they are resolved during
+     layout, every time, with no observer to starve, no attach-timing race,
+     no padding arithmetic to get wrong, and no per-breakpoint constants.
+
+     `align-self: stretch` below is REQUIRED for that, not cosmetic: this
+     element's flex parent (GameView.module.css's `.boardWrap`) sets
+     `align-items: center`, so by default this element's HEIGHT came from its
+     own contents — precisely what size containment switches off. Without the
+     stretch it collapsed to 20px (its padding alone), the board fell back to
+     its 240px floor and `100cqh` became meaningless. Stretching takes the
+     height from the parent instead, which is both what containment requires
+     and what this element always actually wanted. */
+  align-self: stretch;
+  container-type: size;
+  /* NO perspective — a deliberate switch to a pure ORTHOGRAPHIC (true
+     isometric) projection, 2026-08-23, on a user report that the board
+     looked "méo mó" (warped/distorted) with broken-looking text.
+
+     Both complaints traced to the same cause, measured rather than guessed.
+     With a perspective camera, a tilted square projects to a TRAPEZOID —
+     the near edge is magnified and the far edge shrinks. Measured live at
+     4000px on the board's own most common orientation: near edge 1053px vs
+     far edge 866px, a 1.22x convergence. That is textbook perspective and
+     not a bug in itself, but on a board game it reads exactly as "the board
+     is warped", and the near-edge magnification also UPSAMPLES the tile
+     text (a rasterized 3D layer stretched past 1:1), which is what made the
+     lettering look broken.
+
+     Dropping perspective fixes both by construction, and is what classic
+     isometric board games actually use:
+       - Geometry: verified live, opposite edges now project to EXACTLY
+         equal lengths (ratio 1.0000 both axes) — a true parallelogram, zero
+         convergence, nothing to look warped.
+       - Text: no part of the surface is magnified past 1:1 any more, so
+         nothing is upsampled.
+       - Bonus, and the reason this is strictly better than the 4000px
+         compromise it replaces: the --spread/--vfactor margin
+         reconciliation below is itself an orthographic derivation with no
+         perspective term. Under a perspective camera it was always an
+         approximation being tuned toward (the whole reason 1000px had to
+         become 4000px); under orthographic it is exact.
+     The board is still fully 3D and visibly tilted — rotateX/rotateZ still
+     apply, buildings and pieces still stand up out of the surface. Only the
+     camera's convergence is gone. */
+  perspective: none;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Board sizing, rewritten 2026-08-22 after a real "board is huge, cut off,
+   text unreadable" report (user screenshot).
+
+   THE ROOT CAUSE, worth stating plainly because it is not obvious:
+   `transform` does not affect layout. The old rule declared a fixed
+   `width: min(1000px, board-size * 90px)` (= 900px for the Small board)
+   plus `aspect-ratio: 1`, so the browser reserved a 900x900 layout box —
+   but the *rendered* diamond is a different size and shape entirely:
+
+     rendered width  = side * sqrt(2)             = side * 1.4142
+     rendered height = side * sqrt(2) * cos(55deg) = side * 0.8112
+
+   So the real diamond was 1273px wide (373px wider than its own layout
+   box, hence clipped/scrolling on both sides) and only 730px tall (170px
+   of dead space the layout still reserved). `scale(0.72)` was an attempt
+   to paper over this by shrinking everything, which is also why the text
+   ended up unreadably small.
+
+   THE FIX: derive `--side` from the real space available, with those two
+   trig factors folded in, then reconcile the layout box with the rendered
+   footprint via margins:
+     - horizontal: the diamond overhangs its layout box by (1.4142-1)/2 =
+       0.2071 * side on each side -> positive margin reserves exactly that.
+     - vertical: the layout box overhangs the diamond by (1-0.8112)/2 =
+       0.0944 * side top and bottom -> negative margin collapses exactly
+       that dead space.
+   Net effect: the element's outer box now equals what is actually drawn,
+   so it centers correctly and nothing is clipped. `scale()` is gone —
+   folded into `--side` itself, so tiles and text are rendered at their
+   true size instead of being shrunk after the fact.
+
+   The subtracted constants below are the real surrounding chrome
+   (GameView.module.css's 240px left column + 280px right column + 16px
+   gaps + 16px body padding + this viewport's own 16px padding; vertically
+   its topbar, GameControls, and the same paddings). Approximate by
+   design — slightly conservative so a phase with taller controls (jail's
+   three-button row) still fits without engaging .viewport's scroll. */
+.board {
+  --board-size: 10; /* overridden inline per board (36 tiles -> 10, 44 tiles -> 12) */
+  /* The board's own side length, derived from the REAL space it has and the
+     shape it is currently in (2026-08-23, final form).
+
+     Two independent inputs, each from the source that actually knows it:
+       - `100cqw`/`100cqh` — `.viewport`'s content box, resolved by the
+         layout engine during layout (see that rule's own comment for why
+         this replaced a JS ResizeObserver measurement that could capture a
+         too-small box and never recover).
+       - `--spread`/`--vfactor` — the board's rendered-footprint factors for
+         the CURRENT camera angle, set inline per render by GameBoard.jsx.
+         The literal fallbacks are the 45deg-diamond values. Using the live
+         ones rather than a hard-coded worst case matters: the same square
+         occupies a very different footprint as a diamond (1.414 / 0.811)
+         than square-on (1.0 / 0.574), and sizing for a shape the board is
+         not currently in was measured wasting ~36% of the available space.
+
+     Dividing the available space by the footprint factor converts "how big
+     the drawn diamond may be" back into "how long the square's side may be",
+     so whichever axis runs out first is the one that binds. The 240px floor
+     is the point below which the board stops shrinking and `.viewport`
+     scrolls instead — deliberately the same value the old per-breakpoint
+     rules used, since a board smaller than that is past readable anyway.
+     The 0.99 keeps a hair of slack for the board's own border and sub-pixel
+     rounding, which was measured to be the difference between fitting and
+     showing a stray scrollbar. */
+  --side: max(240px, min(calc(100cqw / var(--spread, 1.4142)), calc(100cqh / var(--vfactor, 0.8112)), 1340px) * 0.99);
+
+  /* Board surface colors are pinned here rather than inherited from
+     index.css's --bg/--border/--code-bg (2026-08-22). Those flip with the
+     OS light/dark setting, but this screen is now a deliberately *fixed*
+     navy/gold theme (GameView.module.css) — so an OS dark-mode user was
+     getting a dark board inside a dark shell, with no way to tell the two
+     apart. A physical board game's surface doesn't change color with the
+     room lights either; keeping it a stable light "board" against the dark
+     shell is both truer to the object and much more readable. Consumed by
+     BoardTile.module.css too (custom properties inherit normally; only
+     class *names* are scoped/hashed by CSS Modules). */
+  --tile-surface: #fdfbf4;
+  --tile-ink: #16192a;
+  --tile-ink-soft: #5a5f74;
+  --tile-line: #cdc7b6;
+  --board-felt: #e9e3d2;
+
+  position: relative; /* anchors .tokenLayer's inset:0 to the board itself, not some further-out ancestor */
+  display: grid;
+  /* The outer ring (first/last row and column) is DEEPER than the inner
+     tracks — this is the real geometry of a printed board, not decoration:
+     it makes every edge tile a rectangle whose long axis points inward
+     (a bottom-edge tile is narrow-and-deep, a left-edge tile is
+     wide-and-shallow), and the four corners naturally the largest, squarest
+     cells. Restored 2026-08-22 after briefly being made uniform: uniform
+     tracks give square edge tiles, which is both unlike a real board and
+     much worse for fitting a long Vietnamese street name.
+
+     An earlier revision had blamed this enlarged ring for the reported
+     "corner tile icon looks detached" bug. That turned out to be wrong —
+     the real cause was the counter-rotated content plate in
+     BoardTile.module.css (now removed entirely, content lies flat on the
+     board), plus the board's own layout-box/rendered-size mismatch. Corner
+     containment is re-measured after this change rather than assumed.
+
+     `minmax(0, ...)` rather than a px minimum: a px floor (the old
+     100px/56px) is a size the grid can never go below, so the board could
+     not actually shrink to the `--side` computed above on a smaller
+     viewport — it would overflow instead. The explicit width sizes this
+     grid; the tracks only divide it. */
+  /* 1.7fr, tuned by measurement 2026-08-22: the user asked for bigger
+     corners, but the ring's depth is shared with every edge tile's *width*
+     budget — pushing it to 1.9fr made corners 167px at the cost of
+     squeezing edge tiles to 88px, which clipped 16 tile names. 1.7fr keeps
+     corners clearly enlarged (~153px, up from 132) while leaving edge tiles
+     the ~90px they need for a two/three-line Vietnamese street name. */
+  grid-template-columns: minmax(0, 1.7fr) repeat(calc(var(--board-size) - 2), minmax(0, 1fr)) minmax(0, 1.7fr);
+  grid-template-rows: minmax(0, 1.7fr) repeat(calc(var(--board-size) - 2), minmax(0, 1fr)) minmax(0, 1.7fr);
+  width: var(--side);
+  aspect-ratio: 1;
+  /* Tile text and every other board-internal size is expressed in `em`
+     against this one value, so the whole board scales as a single unit
+     with the viewport instead of each element clamping independently. */
+  font-size: calc(var(--side) / 48);
+  /* Camera slice (2026-08-22) — generalizes the margin reconciliation above
+     from the fixed 45deg/55deg case to whatever the board's current Z spin
+     and zoom actually are. --spread/--vfactor are the same two rendered-
+     footprint factors described above (width factor and height factor),
+     recomputed in GameBoard.jsx for the *current* boardSpin via plain JS
+     trig (no CSS trig-function dependency) since they change continuously
+     as the user rotates; --zoom scales both. At the default state
+     (spin 0, zoom 1) this reduces to exactly the -0.0944/0.2071 constants
+     the block comment above derives by hand — same identity, just no
+     longer hard-coded to one single angle. */
+  margin: calc(var(--side) * (var(--vfactor, 0.8112) * var(--zoom, 1) - 1) / 2)
+    calc(var(--side) * (var(--spread, 1.4142) * var(--zoom, 1) - 1) / 2);
+  border: 2px solid var(--tile-line);
+  /* Without this the 2px border sits OUTSIDE `width: var(--side)`, so the
+     board's real layout box is --side + 4px while the margin reconciliation
+     below (and GameBoard.jsx's own fit calculation) both assume it is
+     exactly --side. Small, but it is a genuine 4px error in a calculation
+     whose whole job is making the layout box equal the rendered footprint —
+     measured as a stray horizontal scrollbar at the small-screen size floor. */
+  box-sizing: border-box;
+  background: var(--board-felt);
+  flex-shrink: 0;
+  transform-style: preserve-3d;
+  /* The actual isometric tilt: rotate the whole flat grid back on X, then
+     spin it (45deg base + --spin, the user's own rotation) on Z — the whole
+     grid (tiles, tokens, the center logo) inherits this as one rigid unit,
+     since it's the *container* being transformed, not each cell
+     independently. `scale(var(--zoom))` (2026-08-22) is now a real,
+     user-controlled zoom — not the old blanket 0.72 this file's own header
+     already explains removing; everything inside (tiles, tokens, dice)
+     scales together as part of this one transform, no per-element zoom
+     logic needed anywhere else. */
+  transform: rotateX(var(--tilt, 55deg)) rotateZ(calc(45deg + var(--spin, 0deg))) scale(var(--zoom, 1));
+  /* NO `transition` on transform/margin here — deliberately removed
+     2026-08-23, a real user report ("bàn cờ bị khuất góc và nhỏ" after
+     rotating the camera), confirmed live as a genuine Chromium bug, not a
+     design choice: `transform`/`margin` both resolve via calc() against
+     plain custom properties (--spin/--tilt/--zoom/--spread/--vfactor) that
+     GameBoard.jsx updates via inline style on every camera change. With a
+     `transition` declared on these properties, the browser would
+     intermittently get PERMANENTLY STUCK rendering the pre-change
+     transform/margin — not merely mid-animation, but frozen there
+     indefinitely, through further unrelated re-renders — until some
+     unrelated style recalc happened to touch the element. Verified two
+     ways on the live page: (1) `getComputedStyle(board).transform` kept
+     reporting a stale rotation/margin long after `--spin` had genuinely
+     changed (confirmed via the element's own `style` attribute); (2)
+     forcing `element.style.transition = 'none'` then a reflow immediately
+     produced the CORRECT, freshly-computed transform/margin — the
+     custom properties and the calc() were never wrong, only the
+     transitioned property's own cached value was. Losing the smooth
+     glide on a manual rotate/tilt/zoom is a real, accepted trade — an
+     animation that sometimes freezes the board in the wrong place is
+     worse than no animation at all. `.tokenStandee`'s own transform
+     transition (below) had the identical bug and was removed for the
+     same reason. */
+  box-shadow: 0 50px 70px -30px rgba(0, 0, 0, 0.55); /* grounds the tilted board visually, same role the reference image's own soft under-board shadow plays */
+}
+
+/* Matches GameView.module.css's own intermediate breakpoint, where the side
+   columns narrow to 184/224 — same budget arithmetic, smaller subtrahend. */
+@media (max-width: 1500px) and (min-width: 901px) {
+  .board {
+    --side: max(260px, min(calc((100vw - 414px) / var(--spread, 1.4142)), calc((100vh - 232px) / var(--vfactor, 0.8112)), 1340px));
+  }
+}
+
+/* Below GameView.module.css's own 900px breakpoint the 3-column grid
+   stacks, so the left/right columns are no longer beside the board — the
+   horizontal budget above (which subtracts both of them) would be far too
+   conservative there. */
+@media (max-width: 900px) {
+  .board {
+    --side: max(240px, min(calc((100vw - 80px) / var(--spread, 1.4142)), calc((100vh - 240px) / var(--vfactor, 0.8112))));
+  }
+}
+
+/* Board animation slice (2026-08-21) — see GameBoard.jsx's own header for
+   why tokens are positioned here, absolutely, instead of as grid-item
+   children of individual tiles. Excluded from CSS Grid's auto-placement by
+   spec (position:absolute), so this never consumes a grid cell or disturbs
+   .center's own explicit placement. */
+.tokenLayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none; /* tokens must never block a tile's own onClick */
+  transform-style: preserve-3d; /* CRITICAL: prevents tokens from flattening onto the board */
+}
+
+/* Player piece (2026-08-23, user request: "những con vật 3d đi đứng
+   được"). Was a small cube with a zodiac emoji printed on two of its
+   faces; now a con-giáp figure that genuinely stands up off the board and
+   walks (features/board/ZodiacFigure.jsx).
+
+   This wrapper stays FLAT on the board and owns only positioning — the
+   shadow below it lies on the tile, the standee inside it rises. Keeping
+   the two as separate children is what lets one be board-aligned and the
+   other camera-aligned, which a single element could not do. */
+/* A zero-size anchor pinned at the tile's exact centre point (2026-08-23,
+   second pass). It used to be a real box that `translate(-50%, -50%)`
+   centred on that point, with the standee hung off its BOTTOM edge — which
+   planted the animal's feet half a box-height in front of the tile centre
+   rather than on it. Collapsing the wrapper to a point makes "where the
+   piece stands" and "which tile it's on" the same coordinate, and lets the
+   shadow and the figure share one origin instead of two. */
+.token {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform: translate(var(--token-offset-x, 0px), var(--token-offset-y, 0px));
+  /* 0.13s -> 0.22s, 2026-08-25 ("chậm rãi hơn") — must stay equal to
+     GameBoard.jsx's own STEP_MS and to .tokenHop's animation-duration below;
+     see STEP_MS's own comment for why all three are coupled. */
+  transition: left 0.22s ease-out, top 0.22s ease-out;
+  z-index: 2;
+}
+
+/* Cast shadow: board-aligned (deliberately NOT counter-rotated), so it
+   skews with the board exactly the way a real shadow on a tilted surface
+   does. Without it the billboarded figure above reads as floating.
+   Centred on the anchor point, i.e. directly under the figure's feet. */
+.tokenShadow {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: calc(var(--side) * 0.05);
+  height: calc(var(--side) * 0.021);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.38) 0%, rgba(0, 0, 0, 0.14) 58%, transparent 74%);
+  pointer-events: none;
+}
+
+/* Bounce-on-arrival (2026-08-25, user request: "di chuyển tới ô nào ô đấy
+   phải nảy nảy cho sinh động" — landing on a tile should visibly hop/bounce,
+   not just glide to a stop). Wraps ONLY .tokenStandee, never .tokenShadow —
+   see the JSX's own comment for the two real reasons this is a separate
+   element rather than a transform added to .tokenStandee directly: a shadow
+   must stay flat on the ground while the figure rises, and .tokenStandee's
+   own transform is the billboard counter-rotation, which this file has
+   twice already documented can never carry an animation of its own (the
+   real Chromium var()-in-a-transform freeze bug — see .board's own comment).
+   `animation`, not `transition`: it needs to replay identically every time
+   this element remounts (a fresh key each tile), not interpolate from
+   wherever a previous value happened to be. */
+.tokenHop {
+  position: absolute;
+  inset: 0;
+  /* CRITICAL, and the cause of a real regression (2026-08-25, user report:
+     "hình chó với mèo lại bị chìm xuống bàn cờ rồi" — the animals sank back
+     into the board the instant this element shipped). `transform-style`
+     defaults to `flat`, which flattens a subtree's 3D transforms into its
+     parent's own 2D plane — and `.tokenHop` sits directly between `.token`
+     (which sets `preserve-3d`, marked CRITICAL in its own rule below for
+     exactly this reason) and `.tokenStandee`, whose `translateZ(1.2px)` is
+     the ENTIRE fix for the earlier "hơi chìm" bug (see that rule's own long
+     comment: without real Z-separation, the shadow ellipse and the animal's
+     legs are coplanar in a preserve-3d tree and get interleaved
+     unpredictably, painting the shadow OVER the legs). Without this
+     declaration, `.tokenHop` silently discarded that Z-separation the
+     moment it became `.tokenStandee`'s new parent, even though nothing
+     about `.tokenHop` itself looks 3D-related — it only ever sets
+     translateY/scale. `transform-style` has to be set on every element in
+     the chain that needs to pass a 3D context through, not just the ones
+     that use Z themselves. */
+  transform-style: preserve-3d;
+  /* Matches .tokenStandee's own pivot for the same reason: .tokenStandee is
+     positioned `bottom: 0` against this exact anchor point (both sit on a
+     genuinely zero-size box here — `.token` itself is `width:0; height:0`),
+     so the scale portion of the hop below needs to pivot from THAT point
+     to read as "leaving/returning to the ground" rather than scaling from
+     the figure's own middle. Kept explicit rather than relying on the
+     zero-size default, in case this ever gains real dimensions later. */
+  transform-origin: bottom center;
+  /* Duration matches STEP_MS/`.token`'s own transition 1:1 (see STEP_MS's
+     comment) so the figure's feet touch back down at the exact instant the
+     horizontal glide arrives at the new tile, not before or after it. */
+  animation: tokenHop 0.22s cubic-bezier(0.33, 0, 0.2, 1);
+}
+
+@keyframes tokenHop {
+  0% {
+    transform: translateY(0) scale(1, 1);
+  }
+  38% {
+    /* Rising, and stretched slightly taller/thinner — the classic
+       squash-and-stretch cue that reads as "leaving the ground" rather than
+       just "moving up". Height-relative (--side-based, like every other
+       token dimension in this file) so the hop scales with board size
+       instead of looking oversized on a small board or timid on a large one. */
+    transform: translateY(calc(var(--side) * -0.032)) scale(0.94, 1.08);
+  }
+  72% {
+    /* Landing: briefly squashed WIDER/shorter, the opposite of the rise —
+       this is what sells the impact instead of a limp fade-back-to-zero. */
+    transform: translateY(0) scale(1.08, 0.9);
+  }
+  100% {
+    transform: translateY(0) scale(1, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tokenHop {
+    animation: none;
+  }
+}
+
+/* The standee. Undoing BOTH of the board's own rotations (its Z spin and
+   its X tilt, read live from the same custom properties GameBoard.jsx sets
+   on `.board`, so this tracks the camera instead of assuming the default
+   45/55) leaves the figure exactly parallel to the screen — a cut-out
+   standing on the tile that faces the viewer from any camera angle. Same
+   billboard identity `.fromGhost` already relies on, generalised off the
+   hard-coded -55deg to the real `--tilt`.
+
+   `transform-origin: bottom center` is the load-bearing part: the figure
+   pivots about its own FEET, so it plants on the tile rather than being
+   centred on it and half-sunk — which is exactly the complaint that
+   prompted this slice. */
+.tokenStandee {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  /* Enlarged 2026-08-23 (user: "to hơn nữa... nhỏ quá") — ~1.8x the first
+     pass, which was sized like a pawn rather than like the character piece
+     it actually is. TOKEN_CELL_PX / JAIL_ZONE_Y in GameBoard.jsx were
+     widened in the same pass so several pieces on one tile still separate
+     at this size. */
+  width: calc(var(--side) * 0.075);
+  height: calc(var(--side) * 0.082);
+  transform-origin: bottom center;
+  /* `translateZ` sits to the LEFT of the rotations, so it applies in the
+     BOARD's space after the figure has been stood up — lifting the whole
+     piece clear of the board plane along its normal.
+     This is load-bearing, not a nicety: the shadow and the tile's own
+     surface chrome are both at Z=0 and so is the figure's base, and
+     coplanar surfaces inside a preserve-3d tree get interleaved
+     unpredictably — which let the dark shadow ellipse paint OVER the
+     animal's legs and made it read as standing in a hole ("hơi chìm").
+     A fraction of a pixel of separation removes the ambiguity entirely
+     while staying invisible at board scale. */
+  transform: translateX(-50%) translateZ(1.2px) rotateZ(calc(-45deg - var(--spin, 0deg)))
+    rotateX(calc(-1 * var(--tilt, 55deg)));
+  /* NO `transition` on transform — see .board's own comment above for the
+     exact same real Chromium bug this had (a var()-driven calc() inside a
+     transitioned transform can get permanently stuck on a stale value) — a
+     token facing the wrong way after the camera rotates is worse than one
+     that turns instantly instead of gliding. */
+  pointer-events: none;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5));
+}
+
+/* Whoever's turn it currently is (2026-08-22) — answers "hiện tại họ ở đâu"
+   with more than just the token's own position: a glow that's easy to spot
+   even while several pieces share a crowded corner tile. Applied to the
+   standee rather than the wrapper (2026-08-23) so it traces the animal's
+   real silhouette instead of a square box. */
+.tokenActive .tokenStandee {
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 8px rgba(240, 180, 41, 0.95));
+}
+
+/* The old .tokenFace/.tokenTop/.tokenBack/.tokenFront/.tokenLeft/
+   .tokenRight cube rules were removed 2026-08-23 along with the six divs
+   that used them — the piece is a ZodiacFigure standee now, not a
+   six-faced box with an emoji printed on it. */
+
+/* "From" marker (2026-08-22, GameBoard.jsx's lastSettled) — a faded, hollow
+   circle in the player's own colour left behind on their previous tile,
+   answering "ô vừa rồi họ ở đâu." Deliberately not a full token copy (no
+   emoji, lower opacity, no border) so it reads as a footprint/afterimage,
+   never confusable with a second real piece. */
+.fromGhost {
+  position: absolute;
+  width: calc(var(--side) * 0.022);
+  height: calc(var(--side) * 0.022);
+  border-radius: 50%;
+  opacity: 0.32;
+  /* 2026-08-23: was a hard-coded rotateX(-55deg), which stopped billboarding
+     correctly the moment BoardCamera changed the tilt off its default —
+     now reads the same live `--tilt` the board's own transform uses. */
+  transform: translate(-50%, -50%) rotateZ(calc(-45deg - var(--spin, 0deg))) rotateX(calc(-1 * var(--tilt, 55deg)));
+  transition: left 0.2s ease, top 0.2s ease, opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.center {
+  grid-row: 2 / -2;
+  grid-column: 2 / -2;
+  /* 2026-08-23: anchors CenterBoardArea.jsx's own `.drumLayer` (the Trống
+     Đồng medallion) to this cell. Without it that absolutely-positioned
+     layer would resolve against `.board` instead — same centre point, but
+     sized to the whole board rather than just this inner cell. */
+  position: relative;
+  /* CenterBoardArea.jsx's `.calloutAnchor` counter-rotates in 3D to keep the
+     centre-board text overlays upright and centred while the board
+     spins/tilts (2026-08-30, user request). That 3D transform only survives
+     if this cell keeps a 3D context for its children instead of flattening
+     them into the board plane — same reason `.tokenLayer` above sets it. The
+     flat medallion is unaffected. */
+  transform-style: preserve-3d;
+  /* `display: flex` + these align rules no longer position anything — every
+     child (`.drumLayer`, `.calloutAnchor`) is absolutely positioned now — but
+     they're harmless and left in place. */
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: calc(var(--side) * 0.06);
+  box-sizing: border-box;
+  background: var(--board-felt);
+  border: 1px solid var(--tile-line);
+}
+
+.empty {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--text);
+}

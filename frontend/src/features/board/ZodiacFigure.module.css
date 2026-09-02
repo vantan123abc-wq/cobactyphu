@@ -1,0 +1,226 @@
+/* Palette + walk cycle for the 12 con giáp board pieces — see
+   ZodiacFigure.jsx's own header for the standee approach and why the piece
+   is drawn in the PLAYER's colour rather than the animal's natural one.
+
+   Every fill below derives from `--token-color`, which GameBoard.jsx
+   already sets per player on the `.token` wrapper (custom properties
+   inherit down normally; CSS Modules only scope class *names*). One source
+   of colour means a figure can never disagree with its own player badge. */
+
+.figure {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible; /* horns, tails and plumes deliberately break the viewBox edge */
+}
+
+.body {
+  fill: var(--token-color, #888);
+  stroke: rgba(0, 0, 0, 0.45);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+.dark {
+  fill: color-mix(in srgb, var(--token-color, #888) 62%, #000);
+  stroke: rgba(0, 0, 0, 0.4);
+  stroke-width: 0.8;
+  stroke-linejoin: round;
+}
+
+.light {
+  fill: color-mix(in srgb, var(--token-color, #888) 55%, #fff);
+  stroke: rgba(0, 0, 0, 0.4);
+  stroke-width: 0.8;
+  stroke-linejoin: round;
+}
+
+/* The back pair of legs (and the monkey's far arm): pushed darker so the
+   near/far pairs separate at this size instead of reading as one mass. */
+.far {
+  fill: color-mix(in srgb, var(--token-color, #888) 60%, #000);
+  filter: brightness(0.72);
+}
+
+.leg {
+  fill: var(--token-color, #888);
+  stroke: rgba(0, 0, 0, 0.4);
+  stroke-width: 0.8;
+  /* Hinge each leg at its own top edge — the hip — so a rotation reads as
+     a stride rather than the whole leg sliding. `fill-box` is what makes
+     `50% 0%` mean "this rect's own top centre"; SVG's default
+     (`view-box`) would rotate every leg about the middle of the whole
+     drawing instead. */
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+}
+
+.eye {
+  fill: #16192a;
+  stroke: none;
+}
+
+/* Neutral accents — horn/beak/comb keep their own real colour rather than
+   the player's, because they're what identifies the ANIMAL; letting them
+   take the player tint would flatten the silhouette's read. */
+.horn {
+  fill: #e6dcc0;
+  stroke: rgba(0, 0, 0, 0.45);
+  stroke-width: 0.9;
+  stroke-linejoin: round;
+}
+
+.beak {
+  fill: #f0a726;
+  stroke: rgba(0, 0, 0, 0.4);
+  stroke-width: 0.8;
+  stroke-linejoin: round;
+}
+
+.comb {
+  fill: #d33a2c;
+  stroke: rgba(0, 0, 0, 0.35);
+  stroke-width: 0.8;
+  stroke-linejoin: round;
+}
+
+.tongue {
+  fill: none;
+  stroke: #d33a2c;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.stripe {
+  fill: none;
+  stroke: rgba(0, 0, 0, 0.5);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+
+.crest,
+.whisker {
+  fill: none;
+  stroke: color-mix(in srgb, var(--token-color, #888) 45%, #fff);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mane,
+.plume {
+  fill: color-mix(in srgb, var(--token-color, #888) 62%, #000);
+  stroke: rgba(0, 0, 0, 0.4);
+  stroke-width: 0.8;
+  stroke-linejoin: round;
+}
+
+.plume {
+  fill: none;
+  stroke: color-mix(in srgb, var(--token-color, #888) 62%, #000);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.curl {
+  fill: none;
+  stroke: var(--token-color, #888);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.fallbackText {
+  fill: #fff;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+/* ── Walk cycle ─────────────────────────────────────────────────────────
+   Only runs while GameBoard.jsx says this piece is actually stepping
+   between tiles (its displayed position hasn't caught up to its real
+   currentPosition yet) — a board where every animal permanently jogs in
+   place would be noise, not life. Diagonal gait: .legA and .legB swing
+   opposite each other, which is how a real quadruped moves. */
+.walking .legA {
+  animation: strideA 0.36s ease-in-out infinite alternate;
+}
+
+.walking .legB {
+  animation: strideB 0.36s ease-in-out infinite alternate;
+}
+
+@keyframes strideA {
+  from {
+    transform: rotate(-19deg);
+  }
+  to {
+    transform: rotate(19deg);
+  }
+}
+
+@keyframes strideB {
+  from {
+    transform: rotate(19deg);
+  }
+  to {
+    transform: rotate(-19deg);
+  }
+}
+
+/* The whole figure bobs with the stride — half the leg period, since a
+   walking body rises once per step, not once per full cycle. */
+.walking .gait {
+  animation: bodyBob 0.18s ease-in-out infinite alternate;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+
+@keyframes bodyBob {
+  from {
+    transform: translateY(0) rotate(-0.8deg);
+  }
+  to {
+    transform: translateY(-1.4px) rotate(0.8deg);
+  }
+}
+
+/* Rắn has no legs to swing — its coil undulates instead, so the snake
+   still visibly "walks" without pretending to have a gait it doesn't. */
+.walking .slither {
+  animation: slither 0.5s ease-in-out infinite alternate;
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+}
+
+@keyframes slither {
+  from {
+    transform: skewX(-5deg) translateY(0);
+  }
+  to {
+    transform: skewX(5deg) translateY(-1px);
+  }
+}
+
+/* Khỉ swings its arms rather than only its legs. */
+.walking .armA {
+  animation: strideA 0.36s ease-in-out infinite alternate;
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+}
+
+.walking .armB {
+  animation: strideB 0.36s ease-in-out infinite alternate;
+  transform-box: fill-box;
+  transform-origin: 50% 0%;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .walking .legA,
+  .walking .legB,
+  .walking .gait,
+  .walking .slither,
+  .walking .armA,
+  .walking .armB {
+    animation: none;
+  }
+}

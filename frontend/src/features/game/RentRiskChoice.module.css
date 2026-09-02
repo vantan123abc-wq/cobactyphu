@@ -1,0 +1,120 @@
+/* Small non-blocking corner drawer — rewritten 2026-08-25 alongside
+   RentRiskChoice.jsx's own rework (see that file's header for the "why":
+   single-actor/optional now, not whole-room-blocking). Same architecture as
+   PropertyActionDrawer.module.css's `.drawer`/`.card` (fixed, board stays
+   visible underneath), mirrored to the bottom-LEFT rather than reusing its
+   exact bottom-right slot: pendingRentGamble is phase-independent and can
+   sit unresolved for many turns, so the same player could in principle
+   still be seeing this when a later turn of their own lands them in
+   AWAITING_PURCHASE (PropertyActionDrawer, bottom-right) — opposite corners
+   means that overlap, when it happens, costs nothing. z-index 20 matches
+   PropertyActionDrawer's own tier: both are optional and non-blocking,
+   neither needs to outrank the other. */
+.drawer {
+  position: fixed;
+  left: 16px;
+  bottom: 140px; /* clears GameControls.module.css's own sticky bottom bar — measured live in a running POST_ACTIONS game (2026-08-25), not assumed: that bar's real rendered height is ~120px (44px of its own top+bottom padding alone, GameControls.module.css line 20), not the ~64px PropertyActionDrawer.module.css's own comment assumes elsewhere in this codebase. 88px (that file's value) was verified to genuinely overlap here before this fix. */
+  z-index: 20;
+  width: min(300px, 85vw);
+  animation: slideFadeIn 0.25s ease-out;
+}
+
+@keyframes slideFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.cardHeader {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.cardBody {
+  padding: 12px 14px;
+  text-align: center;
+  box-sizing: border-box; /* explicit per-selector, matching this project's own established practice — see this file's pre-2026-08-25 history for the overflow bug that skipping it caused elsewhere */
+}
+
+.explainer {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.keepButton,
+.gambleButton {
+  flex: 1;
+  padding: 10px 8px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.keepButton {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.keepButton:not(:disabled):hover {
+  background: var(--code-bg);
+}
+
+.gambleButton {
+  border: none;
+  background: #c0392b; /* this file's own established red, unchanged from before the 2026-08-25 rework */
+  color: #fff;
+  box-shadow: var(--shadow);
+}
+
+.gambleButton:not(:disabled):hover {
+  filter: brightness(1.1);
+}
+
+.keepButton:disabled,
+.gambleButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.odds {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: var(--text);
+  opacity: 0.85;
+}
+
+/* .error / .errorLine removed 2026-09-02 — every raw {errorCode}: {message}
+   render was replaced by the shared ActionNotice component, which brings its
+   own styling. Deleted rather than left behind: an orphaned rule later reads
+   as "something used to render here". */

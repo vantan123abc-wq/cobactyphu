@@ -1,0 +1,345 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
+.heading {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--et-gold);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: var(--et-card-bg);
+  border: 1px solid var(--et-border);
+  border-left-width: 6px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.active {
+  border-right-color: var(--et-gold);
+  border-top-color: var(--et-gold);
+  border-bottom-color: var(--et-gold);
+  box-shadow: 0 0 0 1px var(--et-gold) inset;
+}
+
+.avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+}
+
+.info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--et-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.offlineDot {
+  flex: none;
+  font-size: 8px;
+  color: var(--et-red);
+}
+
+.stats {
+  display: flex;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 11px;
+  /* 2026-08-25: these two never shrink, so on a narrow sidebar — or simply
+     with a large balance like $12000 — the amount spilled out past the right
+     edge of its own card and gave the whole player list a horizontal
+     scrollbar. Measured at 6.1px of spill from `.balance`. Wrapping to a
+     second line is the right trade here: the number must stay fully
+     readable, so it should never be clipped or ellipsised. */
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.propsCount {
+  color: var(--et-text-muted);
+  /* The property count is the half that can safely lose characters if space
+     really does run out; the balance never should. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardsCount {
+  color: var(--et-text-muted);
+  font-size: 11px;
+}
+
+.balance {
+  color: var(--et-gold);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.turnBadge {
+  position: absolute;
+  top: -8px;
+  right: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--et-gold);
+  color: #1a1200;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* GameView.module.css's own <900px breakpoint stacks the 3-column grid
+   into a single flow column — the Players panel becomes a horizontal
+   scroll strip above the board there, rather than a tall vertical list
+   eating most of the screen, so this switches .list's own axis to match. */
+@media (max-width: 900px) {
+  .list {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 4px;
+  }
+
+  .card {
+    flex: none;
+    min-width: 170px;
+  }
+}
+
+.ownedProperties {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 44px; /* Align with info column (34px avatar + 10px gap) */
+}
+
+/* Held card effects (2026-08-23) — deliberately styled as small *cards*
+   (square-ish, gold-edged, a hairline "printed" look) rather than as flat
+   text: they represent real cards/vouchers the player is holding, and they
+   sit directly above .ownedProperties' property dots, which are the other
+   "things this player has" row. Same 44px indent so both rows line up
+   under the player's name rather than under the avatar. */
+.heldEffects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 44px;
+}
+
+.heldChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(240, 180, 41, 0.5);
+  background: var(--et-gold-dim);
+  color: var(--et-gold);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.heldIcon {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.propertyDot {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+  cursor: help;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  color: white;
+}
+
+.propertyDot.transport {
+  background: #34495e; /* Default dark for transport */
+}
+
+.propertyDot.utility {
+  background: #7f8c8d; /* Default gray for utility */
+}
+
+/* ── Live standing badge (2026-08-25) ───────────────────────────────────
+   Cards are sorted by total wealth, so the rank is the row's own position.
+   Fixed-width so the avatars below it stay in one vertical line regardless
+   of whether a card shows "#1" or the leader's crown. */
+.rankBadge {
+  flex: 0 0 auto;
+  width: 22px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--et-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rankLeader {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.netWorthLine {
+  font-size: 10px;
+  color: var(--et-text-muted);
+}
+
+.netWorthLine strong {
+  color: var(--et-gold);
+  font-weight: 700;
+}
+
+/* ── Current tile (2026-08-25) ──────────────────────────────────────────
+   Where this player is standing right now. Kept to one line and clipped
+   rather than wrapped — a long Vietnamese street name must not grow the
+   card and push the rest of the list around on every move. */
+.currentTile {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: var(--et-inset-bg, rgba(255, 255, 255, 0.04));
+  font-size: 11px;
+}
+
+.currentTileIcon {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.currentTileName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--et-text-muted);
+}
+
+/* ── Floating money change (2026-08-25) ─────────────────────────────────
+   Requested explicitly as a SLOW rise ("hiển thị chầm chậm"), so every
+   player at the table has time to read it — hence the 2.4s duration, which
+   the component's own MONEY_FLOAT_MS must stay in step with.
+
+   pointer-events: none on the layer is load-bearing: these bubbles sit on
+   top of the card, and the card's own property rows are clickable. */
+.moneyFloatLayer {
+  position: absolute;
+  top: 4px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.moneyFloatGain,
+.moneyFloatLoss {
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  animation: moneyFloat 2.4s ease-out forwards;
+}
+
+.moneyFloatGain {
+  color: #0b3d1e;
+  background: #4ade80;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.moneyFloatLoss {
+  color: #fff;
+  background: #dc2626;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+@keyframes moneyFloat {
+  0%   { opacity: 0; transform: translateY(6px) scale(0.85); }
+  12%  { opacity: 1; transform: translateY(0) scale(1.06); }
+  22%  { transform: translateY(0) scale(1); }
+  75%  { opacity: 1; transform: translateY(-14px); }
+  100% { opacity: 0; transform: translateY(-24px); }
+}
+
+/* Respect a reduced-motion preference: still show the amount, just without
+   the drift — the information matters more than the animation. */
+@media (prefers-reduced-motion: reduce) {
+  .moneyFloatGain,
+  .moneyFloatLoss {
+    animation: moneyFloatStill 2.4s ease-out forwards;
+  }
+  @keyframes moneyFloatStill {
+    0%, 85% { opacity: 1; }
+    100%    { opacity: 0; }
+  }
+}

@@ -1,0 +1,193 @@
+/* Full modal, overlaying the board (this task's own explicit "TradeWindow
+   modal" requirement) — wider than FlashAuction.module.css's own modal
+   since this one needs two property/money columns side by side, not a
+   single auction readout. z-index sits between PropertyManager.module.css's
+   side panel (15) and FlashAuction.module.css's own backdrop (50): a trade
+   is a focused 2-party negotiation, not a whole-room event, so it
+   deliberately doesn't outrank a live auction if both were ever somehow
+   open at once, but it should still sit above the property side panel. */
+/* Docked to the bottom + lighter/blurred (2026-08-22, user request) rather
+   than fully dead-centered and opaque — the board stays visible above the
+   modal instead of being hidden behind it while a trade is being decided. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  padding: 16px;
+  box-sizing: border-box;
+  animation: backdropFadeIn 0.2s ease-out;
+}
+
+@keyframes backdropFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(680px, 94vw);
+  max-height: 70vh; /* 2026-08-22: was 90vh — bottom-docked now (see .backdrop), keeping this shorter leaves the board's own top clear */
+  overflow-y: auto;
+  padding: 20px;
+  box-sizing: border-box;
+  border-radius: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  animation: modalPopIn 0.2s ease-out;
+}
+
+@keyframes modalPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.headerText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  color: var(--text-h);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.roundBadge {
+  align-self: flex-start;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.closeButton {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--code-bg);
+  color: var(--text-h);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  background: var(--border);
+}
+
+.columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 560px) {
+  .columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.primaryButton,
+.secondaryButton,
+.dangerButton {
+  flex: 1;
+  min-width: 120px;
+  padding: 11px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.primaryButton {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow);
+}
+
+.primaryButton:not(:disabled):hover {
+  filter: brightness(1.1);
+}
+
+.secondaryButton {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.secondaryButton:not(:disabled):hover {
+  background: var(--code-bg);
+}
+
+.dangerButton {
+  border: 1px solid rgba(192, 57, 43, 0.4);
+  background: var(--bg);
+  color: #c0392b;
+}
+
+.dangerButton:not(:disabled):hover {
+  background: rgba(192, 57, 43, 0.08);
+}
+
+.primaryButton:disabled,
+.secondaryButton:disabled,
+.dangerButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.expiry {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text);
+  text-align: center;
+}
+
+/* .error / .errorLine removed 2026-09-02 — every raw {errorCode}: {message}
+   render was replaced by the shared ActionNotice component, which brings its
+   own styling. Deleted rather than left behind: an orphaned rule later reads
+   as "something used to render here". */

@@ -1,0 +1,375 @@
+/* Big centre-screen event card (2026-08-23) — see EventCardModal.jsx's own
+   header for why this replaced both the old bottom-docked 380px choice
+   panel and the old top-corner instant toast, and why that deliberately
+   reverses the 2026-08-22 "dock modals to the bottom" pass for THIS
+   component only.
+
+   z-index 45: above TradeWindow's 40 (a forced event-card decision outranks
+   an optional trade negotiation the player chose to open) but below
+   FlashAuction's 50 (a whole-room auction). AWAITING_EVENT_CHOICE and
+   FLASH_AUCTION_ACTIVE are mutually exclusive gameState.phase values
+   anyway — this ordering only ever matters against TradeWindow in
+   practice. */
+
+/* A pending CHOICE really is blocking — the whole table is waiting on it —
+   so this one takes clicks. Still translucent + blurred rather than opaque:
+   the board stays legible behind the card, which was the real point of the
+   2026-08-22 pass and is kept. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 8, 18, 0.52);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  padding: 16px;
+  box-sizing: border-box;
+  animation: backdropFadeIn 0.25s ease-out;
+}
+
+/* A resolved INSTANT card blocks nothing (its effect already happened and
+   the acting player still has to reach End Turn), so this variant is
+   click-through — only the card itself takes pointer events, via .scene
+   below. No dim/blur either: nothing is waiting, so nothing should look
+   like it is. */
+.backdropGhost {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+@keyframes backdropFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.scene {
+  pointer-events: auto; /* re-enabled for .backdropGhost's click-through case */
+  width: min(360px, 84vw);
+  perspective: 1600px;
+}
+
+/* The real two-sided card. `.face` is the in-flow child so the card sizes
+   itself to whatever text/options the drawn card actually has; `.back`
+   stretches over it absolutely. Both hide their own reverse side, so
+   exactly one is ever visible during the turn. */
+.flipper {
+  position: relative;
+  transform-style: preserve-3d;
+  animation: cardDealAndFlip 1s cubic-bezier(0.2, 0.72, 0.24, 1) both;
+}
+
+/* Safety-net end state (2026-08-23) — see EventCardModal.jsx's own comment
+   on its `settled` state for why this exists: a real user report of the
+   flip animation getting stuck mid-flight, showing the card's BACK
+   indefinitely with its (for a CHOICE card, essential) option buttons
+   unreachable. Applied ~1.1s after every draw, replacing the animation
+   outright with its own guaranteed-correct final transform — this can
+   never be "more stuck" than doing nothing, and unconditionally resolves
+   a frozen animation of any cause (a backgrounded tab, a slow device, a
+   browser quirk) into a normal, fully interactive card. */
+.settled {
+  animation: none;
+  transform: translateY(0) scale(1) rotateY(180deg);
+}
+
+/* Flies in face-DOWN from above, settles, then turns over — the "mở thẻ"
+   the user asked for, rather than the previous pass's one-sided reveal
+   (which had no printed back at all and was flagged as a simplification at
+   the time). */
+@keyframes cardDealAndFlip {
+  0% {
+    transform: translateY(-46px) scale(0.72) rotateY(0deg);
+    opacity: 0;
+  }
+  18% {
+    opacity: 1;
+  }
+  48% {
+    transform: translateY(0) scale(1) rotateY(0deg);
+  }
+  100% {
+    transform: translateY(0) scale(1) rotateY(180deg);
+  }
+}
+
+.back,
+.face {
+  border-radius: 16px;
+  box-sizing: border-box;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  box-shadow: 0 26px 60px -18px rgba(0, 0, 0, 0.75);
+}
+
+.back {
+  position: absolute;
+  inset: 0;
+  padding: 10px;
+  background: var(--deck-color);
+  /* "Hồi văn" key-fret lattice — a traditional Vietnamese/East Asian
+     repeating ground, drawn with plain gradients rather than an image
+     asset (this project has no image-generation tool available; the same
+     CSS-primitives-only constraint GoTileArt.jsx/JailArt.jsx already work
+     under). */
+  background-image: repeating-linear-gradient(45deg, rgba(0, 0, 0, 0.16) 0 2px, transparent 2px 12px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.16) 0 2px, transparent 2px 12px);
+}
+
+.backFrame {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-radius: 10px;
+  box-shadow: inset 0 0 0 4px rgba(0, 0, 0, 0.14);
+}
+
+.backIcon {
+  display: flex;
+  font-size: 84px;
+  line-height: 1;
+  color: #fff;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.4));
+}
+
+.backWordmark {
+  font-family: var(--heading);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.face {
+  position: relative;
+  transform: rotateY(180deg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  /* Hugs its content (2026-08-30, user report: "đang bị như này khi xuất
+     hiện thẻ" — a one-line instant card was stretched to a 420px void with
+     the text marooned in the middle). A short instant card is now short; a
+     choice card with two or three options is as tall as those need; a
+     genuinely long card scrolls inside `.faceBody`, capped at `max-height`. */
+  min-height: 0;
+  max-height: 86vh;
+  padding: 18px 18px 20px;
+  background: #fdfbf4; /* the board's own tile surface (GameBoard.module.css --tile-surface) — the card reads as belonging to this board, not to the app chrome */
+  color: #16192a;
+  /* Deck-coloured edge, thicker at the top so the header band reads as a
+     printed card header rather than a UI toolbar. */
+  border: 2px solid var(--deck-color);
+  border-top-width: 8px;
+  text-align: center;
+}
+
+.faceHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--deck-color);
+}
+
+.faceIcon {
+  display: flex;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.deckName {
+  font-family: var(--heading);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.drawnBy {
+  margin: -4px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5a5f74;
+}
+
+.faceBody {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: 100%;
+  /* Hairline rules above and below the card's own text, the way a printed
+     card separates its title block from its body. */
+  border-top: 1px solid rgba(22, 25, 42, 0.14);
+  border-bottom: 1px solid rgba(22, 25, 42, 0.14);
+  padding: 14px 2px;
+}
+
+.cardText {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #16192a;
+}
+
+/* "This card went to your hand, it has not taken effect" (2026-09-01) — see
+   EventCardModal.jsx's own comment for the misleading-notice bug this fixes.
+   Deliberately styled as a neutral note, not as a gain/loss: nothing moved. */
+.keptLine {
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(184, 145, 47, 0.14);
+  border: 1px solid rgba(184, 145, 47, 0.45);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #6f5324;
+}
+
+.amounts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.gain {
+  font-size: 26px;
+  font-weight: 800;
+  color: #1f7a52;
+}
+
+.loss {
+  font-size: 26px;
+  font-weight: 800;
+  color: #b3261e;
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.optionButton {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 11px 13px;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 8px;
+  border: 1px solid var(--deck-color);
+  background: color-mix(in srgb, var(--deck-color) 12%, #fdfbf4);
+  color: #16192a;
+  cursor: pointer;
+  text-align: left;
+}
+
+.optionButton:not(:disabled):hover {
+  background: var(--deck-color);
+  color: #fff;
+}
+
+.optionButton:not(:disabled):hover .optionPreview {
+  color: rgba(255, 255, 255, 0.9);
+  border-top-color: rgba(255, 255, 255, 0.35);
+}
+
+.optionButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.optionText {
+  display: block;
+}
+
+/* Destination preview (2026-08-23, user report: an option like "Tiến 1 ô"
+   offered no way to know WHAT tile that actually lands on — an uninformed
+   choice, not the card's own intent). Shown only for options that actually
+   move the drawer (EventCardModal.jsx's own moveDestinationTile) — an
+   ordinary money/dice option has nothing to preview and gets no second
+   line. `--preview-color`, when the destination has one (a color-group
+   property, or Cơ Hội/Khí Vận itself), tints the small hairline divider
+   above this line — the same "the board's own color identity carries into
+   every card that references a tile" idea CenterBoardArea's medallion and
+   PropertyManager's border-top already established this session, applied
+   here at a much smaller scale. */
+.optionPreview {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding-top: 5px;
+  border-top: 1px solid color-mix(in srgb, var(--preview-color, var(--deck-color)) 45%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--preview-color, var(--deck-color)) 70%, #16192a);
+}
+
+.optionPreviewIcon {
+  flex: none;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.waitingLine {
+  margin: 0;
+  font-size: 13px;
+  font-style: italic;
+  color: #5a5f74;
+}
+
+.unknownCard {
+  margin: 0;
+  font-size: 13px;
+  font-style: italic;
+  color: #5a5f74;
+}
+
+
+.closeButton {
+  padding: 8px 22px;
+  border-radius: 999px;
+  border: 1px solid rgba(22, 25, 42, 0.2);
+  background: transparent;
+  color: #5a5f74;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  border-color: var(--deck-color);
+  color: var(--deck-color);
+}
+
+/* .error / .errorLine removed 2026-09-02 — every raw {errorCode}: {message}
+   render was replaced by the shared ActionNotice component, which brings its
+   own styling. Deleted rather than left behind: an orphaned rule later reads
+   as "something used to render here". */

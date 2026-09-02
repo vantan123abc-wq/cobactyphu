@@ -1,0 +1,40 @@
+/* Table-wide market readout on GameView's shared status rail (2026-09-02).
+   Reads GameView.module.css's own --et-* palette, which cascades normally
+   through nested CSS Modules. Sized to match `.turnPill` beside it so the
+   rail reads as one row of peers, not a panel bolted on. */
+
+.rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  /* The board underneath is draggable (BoardCamera's rotate/pan) and the
+     parent rail sets `pointer-events: none` for exactly that reason — these
+     chips are pure readout, so they deliberately do NOT re-enable it. The
+     `title` tooltips are a keyboard/hover nicety only, never a click target. */
+  pointer-events: none;
+}
+
+.chip {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(11, 18, 32, 0.75);
+  border: 1px solid var(--et-border);
+  color: var(--et-text);
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums; /* the counts change constantly — stop the chip width from jittering */
+}
+
+/* Scarcity marker. Deliberately a neutral state colour, not an alert: it
+   reports "few left", it does not tell anyone to hurry (design brief §18 —
+   information, never decision). */
+.low {
+  border-color: var(--et-gold);
+  color: var(--et-gold);
+}
+
+.auction {
+  border-color: var(--et-green);
+  color: var(--et-green);
+}

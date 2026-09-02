@@ -1,0 +1,507 @@
+/* Board-layout slice, 2026-08-22 — reworked to follow how a real printed
+   board game lays a tile out (user reference: Business Tour's isometric
+   board), replacing the previous "billboard an upright white sign over the
+   tilted tile" approach:
+
+   1. Tile content now lies FLAT on the board surface, inheriting the
+      board's own isometric tilt, instead of being counter-rotated upright.
+      The counter-rotated version produced a small floating plate whose
+      on-screen footprint didn't match its own tile — cramped, visually
+      detached, and the direct cause of the long-reported "corner tile icon
+      looks detached from its tile" bug. Nothing is counter-rotated here
+      any more, so that whole class of mismatch is gone structurally.
+   2. Text runs PARALLEL TO ITS OWN EDGE — horizontal on the top/bottom
+      edges, vertical (writing-mode) on the left/right ones — exactly as a
+      real board prints it, and what makes the reference legible.
+   3. The colour band sits on the edge FACING THE BOARD'S CENTRE, per edge,
+      rather than always on top. Driven by flex-direction below.
+
+   --tile-surface/--tile-ink/--tile-line/--board-felt are defined once on
+   .board (GameBoard.module.css) and inherit down here — see that file for
+   why the board's own surface colours are pinned rather than following
+   index.css's OS-theme-adaptive tokens. */
+.tile {
+  position: relative;
+  display: flex;
+  /* overflow: hidden removed to allow transform-style: preserve-3d to work (3D houses popping out) */
+  border: 1px solid var(--tile-line);
+  background: var(--tile-surface);
+  color: var(--tile-ink);
+  box-sizing: border-box;
+  min-width: 0; /* lets text-overflow ellipsis actually work inside a grid track */
+  transform-style: preserve-3d;
+  /* Ownership visualization: a thick inner border */
+  box-shadow: inset 0 0 0 6px var(--owner-color, transparent);
+}
+
+/* Edges now use rotations and writing-mode so their content always faces the center of the board, matching physical printed boards and 3D games like Business Tour.
+   Bottom/Top tiles run horizontal text. Left/Right tiles run vertical text.
+   Top/Right tiles are rotated 180deg so they face inward instead of outward. */
+.tile:not(.corner).bottom {
+  flex-direction: column;
+}
+.tile:not(.corner).top {
+  flex-direction: column;
+  transform: rotateZ(180deg);
+}
+.tile:not(.corner).left {
+  writing-mode: vertical-rl;
+  flex-direction: column;
+}
+.tile:not(.corner).right {
+  writing-mode: vertical-rl;
+  flex-direction: column;
+  transform: rotateZ(180deg);
+}
+
+.corner {
+  background: var(--board-felt);
+  align-items: center;
+  justify-content: center;
+}
+
+/* `.corner`'s own `align-items: center` sizes .content to its own content
+   height rather than the tile's — measured live 2026-08-22 as a 37px box
+   holding a 42px label, i.e. the GO corner's text overflowing its tile.
+   Stretching it back to full height lets .content's own justify-content
+   do the centring instead, with room to spare. */
+.corner .content {
+  align-self: stretch;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.clickable:hover {
+  filter: brightness(1.06);
+}
+
+.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 0 6px var(--owner-color, transparent), 0 0 0 4px var(--accent-bg);
+  z-index: 1;
+}
+
+/* Permanent price readout for an OWNED tile (2026-08-25, user request:
+   owned tiles show their price "ở đuôi ô" — at the tile's tail end).
+   REVISED same day: first built as a hover/touch-only reveal (opacity 0,
+   a `:hover`/`:focus-visible`/forced-touch-class transition to opacity 1)
+   — the user then shared a Business Tour reference screenshot showing
+   every tile's price permanently visible and prominent, clarifying the
+   real intent was always-on, not a tooltip. The reveal machinery (opacity
+   transition, the touch-forced class, the hover/focus selectors) is gone;
+   this now simply renders, no interaction involved.
+
+   Still a solid chip rather than plain text laid over the tile's own
+   surface: it has to stay readable regardless of which colour band or
+   owner tint happens to be underneath it on any given tile, which a
+   same-background text label can't guarantee. `--tile-ink`/a literal gold
+   both already exist elsewhere in this app for "dark chip, gold figure"
+   (money emphasis); contrast checked (WCAG, not eyeballed — see
+   PROJECT_STATUS.md finding #42 for why that matters on this project
+   specifically): gold-on-tile-ink is 9.34:1.
+
+   `inset-block-end` — a WRITING-MODE-AWARE logical offset, deliberately not
+   physical `bottom` — is what makes ONE rule land on the correct real edge
+   for all four board sides without separate per-edge overrides. It resolves
+   against each tile's own `writing-mode` (plain for .bottom/.top,
+   `vertical-rl` for .left/.right) before the decorative whole-tile
+   `rotateZ(180deg)` (.top/.right) is ever applied — the exact mechanism
+   `.band` above already relies on (as flex-start) to always face the
+   board's centre; this resolves to the opposite edge (block-end) by the
+   same logic, verified live against all 4 real edges. */
+.ownedPrice {
+  position: absolute;
+  inset-inline: 0;
+  inset-block-end: 2px;
+  z-index: 3; /* above .buildings3d (2) so a built-up tile's own houses never cover this */
+  display: flex;
+  justify-content: center;
+  pointer-events: none; /* never a second click target — .tile's own onClick already owns tap-to-select */
+}
+
+.ownedPrice > * {
+  padding: 0.08em 0.45em;
+  border-radius: 999px;
+  background: var(--tile-ink);
+  color: #f0b429;
+  /* Matches .price's own existing font-size (below) — this is meant to read
+     with the same prominence as the unowned price it replaces, per the
+     Business Tour reference, not smaller. */
+  font-size: 0.72em;
+  font-weight: 800;
+  line-height: 1.5;
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35);
+}
+
+
+.band {
+  flex: 0 0 26%;
+  align-self: stretch; /* not `width: 100%` — this has to stretch across whichever axis is the cross axis for this tile's own edge direction */
+  border-bottom: 1px solid var(--tile-line);
+}
+
+.left .band,
+.right .band {
+  border-bottom: none;
+  border-left: 1px solid var(--tile-line);
+}
+
+.content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1em;
+  padding: 0.25em 0.2em;
+  text-align: center;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Left/right edges used to run their text in the block direction
+   (`writing-mode: vertical-rl` + a fixed `rotate(180deg)`), tuned to read
+   right-way-up specifically when the board's own Z rotation was exactly
+   the original fixed 45deg. That assumption broke the moment rotation
+   became user-adjustable (BoardCamera.jsx, 2026-08-22) — a real,
+   screenshotted bug: one click of "Xoay trái" moved the board's total Z
+   rotation to 0deg, and this rule, still hard-coded for 45deg, then made
+   left/right tiles read upside-down while top/bottom tiles (which never
+   had a fixed correction) rotated correctly — an inconsistent mix, not a
+   uniform "whole board turned" look.
+   Fixed by removing the special-casing outright rather than trying to
+   parameterize it by --spin: every tile's content now lies flat with
+   plain horizontal text, the same as top/bottom edges always used,
+   inheriting the board's rotation uniformly with nothing left to go out
+   of sync. Left/right edge tiles are the *wide* ones (GameBoard.module.css's
+   own outer-ring depth), so horizontal text has at least as much room as
+   the vertical arrangement did, not less. */
+
+/* Corner tiles sit in the same grid ring as the edge tiles' depth (see
+   GameBoard.module.css) so they're naturally the largest cells — their
+   content is scaled up to match rather than left at edge-tile size. Bumped
+   again 2026-08-22 alongside that ring going 1.45fr -> 1.9fr, so the icon
+   still fills its (now noticeably bigger) corner rather than floating in
+   the middle of empty space. */
+.cornerIcon {
+  width: 3em;
+  height: 3em;
+  color: var(--tile-ink);
+}
+
+.icon {
+  font-size: 1.15em;
+  line-height: 1;
+  color: var(--tile-ink);
+}
+
+/* Every size here is `em` against .board's own font-size
+   (GameBoard.module.css), so the whole board scales as one unit with the
+   viewport rather than each element clamping independently against `vw`. */
+.name {
+  font-size: 0.68em;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  /* Allow text to wrap naturally without strict clamping that cuts it off */
+  word-break: break-word;
+  hyphens: auto;
+  flex: none;
+}
+
+.price {
+  font-size: 0.72em;
+  font-weight: 700;
+  color: var(--tile-ink-soft);
+  flex: none;
+}
+
+/* ── Buildings (2026-08-22) ── */
+
+/* Buildings sit ON the group colour band — the same place a printed
+   Monopoly board puts them, and (2026-08-23, user request: "nhà nằm trên
+   bàn cờ nhưng không ảnh hưởng đến thẩm mỹ của đất") the one strip of a
+   tile that carries no text, so a row of houses can never cover the
+   property's own name or price.
+   Constrained to exactly the band's own 26% (`.band`'s flex-basis) rather
+   than the old open-ended `top: 4%`, which let a row of buildings drift
+   down past the band onto the name below it. Centring inside that strip is
+   what keeps them visually seated on the colour rather than straddling its
+   edge. Buildings rise in +Z from here, i.e. away from the tile's own text
+   toward the board centre — they never grow over it. */
+.buildings3d {
+  position: absolute;
+  display: flex;
+  gap: 0.18em;
+  align-items: center;
+  justify-content: center;
+  transform-style: preserve-3d;
+  z-index: 2; /* above band and owner bar */
+  /* Left/right edge tiles carry `writing-mode: vertical-rl` (see the
+     `.tile:not(.corner).left` rule above), which flips what `flex-direction:
+     column` physically MEANS — its main axis becomes horizontal. Measured
+     live 2026-08-23: that made the four houses on a left/right tile lay out
+     across the band's 36px width instead of down its 81px height, and
+     flex-shrink then squashed each one to exactly half its real footprint
+     (6px instead of 12px) — visibly narrow, squashed houses on two of the
+     four board edges. Pinning this container back to horizontal-tb makes
+     `column` mean physically-vertical again on every edge, so the
+     per-edge rules below say what they appear to say. */
+  writing-mode: horizontal-tb;
+}
+
+.top .buildings3d,
+.bottom .buildings3d {
+  top: 0;
+  height: 26%;
+  left: 0;
+  right: 0;
+}
+
+.left .buildings3d,
+.right .buildings3d {
+  right: 0;
+  width: 26%;
+  top: 0;
+  bottom: 0;
+  flex-direction: column;
+}
+
+/* ── Buildings, rebuilt 2026-08-23 ──────────────────────────────────────
+   User report: houses looked sunk INTO the board instead of standing on
+   it. Root cause was a real CSS bug, not a styling preference: the old
+   roof face used `transform: translateZ(100%)`, and `translateZ()` accepts
+   only a <length> — a percentage makes the whole declaration invalid, so
+   the browser dropped it entirely (verified in the live page: assigning
+   `translateZ(100%)` to a style parses to the empty string). The four
+   walls folded up correctly around a roof that never left Z=0, i.e. an
+   open box with its lid lying on the floor — exactly what was reported.
+
+   Rebuilt as a real house rather than a re-fixed cube: four walls of a
+   controlled height, plus a genuine four-sided hip roof (mái tứ giác) made
+   of clip-path triangles. --wall-h / --roof-run are the two dimensions
+   everything derives from, so walls and roof can no longer disagree the
+   way the old 100%-of-what version could.
+
+   The roof geometry is exact, not eyeballed: each roof face hinges at its
+   wall's top edge and tilts up 45deg, so its horizontal run is
+   --roof-run * cos(45deg). Setting --roof-run = --w * 0.707 makes that run
+   land at exactly --w/2 — the centre of the house — which is what puts all
+   four apexes on one ridge point instead of leaving a gap or an overlap. */
+.house3d,
+.hotel3d {
+  position: relative;
+  transform-style: preserve-3d;
+  transform: translateZ(1px); /* lifts the footprint clear of the board so it can't z-fight the tile */
+  /* Never let flex squash a building's footprint: --w/--wall-h/--roof-run
+     are a matched set (the roof geometry below only meets at a single ridge
+     point if the footprint is exactly --w), so a shrunk width silently
+     breaks the roof, not just the proportions. */
+  flex: none;
+}
+
+/* A house: small, wide, low walls under a steep roof — a cottage
+   silhouette. Kept deliberately small so four of them fit across a tile's
+   band without crowding it. */
+.house3d {
+  --w: 0.62em;
+  --wall-h: 0.36em;
+  --roof-run: 0.44em; /* --w * 0.707 */
+  width: var(--w);
+  height: var(--w);
+}
+
+/* The hotel is not just a bigger house — it's a different silhouette:
+   noticeably wider, and MUCH taller relative to its own width (walls
+   ~1.1x its footprint vs the house's ~0.58x), so at board scale a hotel
+   reads instantly as a tower next to cottages rather than as "one more
+   house". Only ever one of them on a tile (BoardTile.jsx renders either
+   `upgradeLevel` houses OR a single hotel, never both), so it can afford
+   the extra footprint the four houses it replaced used to occupy. */
+.hotel3d {
+  --w: 0.86em;
+  --wall-h: 0.95em;
+  --roof-run: 0.61em; /* --w * 0.707 */
+  width: var(--w);
+  height: var(--w);
+}
+
+/* Contact shadow (2026-08-23) — a soft dark ellipse lying flat on the tile
+   directly under each building, at the same board plane the tile itself
+   occupies. Same reasoning as the player pieces' own `.tokenShadow`
+   (GameBoard.module.css): a lit 3D object with nothing beneath it reads as
+   floating. Sits BELOW the building's own +Z lift, so it can never paint
+   over the walls the way a coplanar shadow would. */
+.house3d::before,
+.hotel3d::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 165%;
+  height: 165%;
+  transform: translate(-50%, -50%) translateZ(-0.9px);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.34) 0%, rgba(0, 0, 0, 0.12) 55%, transparent 72%);
+  pointer-events: none;
+}
+
+/* Walls. Each is hinged along the footprint edge it belongs to and folded
+   up into +Z; its own height (not the footprint's) becomes the wall height,
+   which is what makes --wall-h actually control the building's height.
+
+   The white hairline border is what separates one building from the next
+   when several sit shoulder to shoulder on a narrow band — without it, a
+   row of same-coloured houses merges into one indistinct block at board
+   scale. */
+.face {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background-color: var(--house-color, #888);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-sizing: border-box;
+}
+
+/* Windows, drawn with gradients rather than extra elements — at the ~10-16px
+   these render at, a real DOM node per window would cost a lot for detail
+   nobody can resolve, while a repeating gradient costs nothing and still
+   reads as "this surface has windows" at a glance. The hotel gets a real
+   multi-storey grid (two crossed repeating gradients); a house gets a
+   single lit window band, since a cottage with a window grid would read as
+   an apartment block and defeat the silhouette difference above. */
+.hotel3d .faceFront,
+.hotel3d .faceBack,
+.hotel3d .faceLeft,
+.hotel3d .faceRight {
+  background-image:
+    repeating-linear-gradient(to bottom, transparent 0 18%, rgba(255, 246, 214, 0.5) 18% 30%, transparent 30% 34%),
+    repeating-linear-gradient(to right, transparent 0 16%, rgba(0, 0, 0, 0.18) 16% 22%, transparent 22% 34%);
+}
+
+.house3d .faceFront,
+.house3d .faceBack,
+.house3d .faceLeft,
+.house3d .faceRight {
+  background-image: linear-gradient(to bottom, transparent 0 26%, rgba(255, 246, 214, 0.55) 26% 56%, transparent 56%);
+}
+
+.faceBack {
+  width: 100%;
+  height: var(--wall-h);
+  transform-origin: top;
+  transform: rotateX(90deg);
+  background-color: color-mix(in srgb, var(--house-color, #888) 58%, black);
+}
+
+.faceFront {
+  width: 100%;
+  height: var(--wall-h);
+  top: auto;
+  bottom: 0;
+  transform-origin: bottom;
+  transform: rotateX(-90deg);
+  background-color: color-mix(in srgb, var(--house-color, #888) 88%, black);
+}
+
+.faceLeft {
+  width: var(--wall-h);
+  height: 100%;
+  transform-origin: left;
+  transform: rotateY(-90deg);
+  background-color: color-mix(in srgb, var(--house-color, #888) 72%, black);
+}
+
+.faceRight {
+  width: var(--wall-h);
+  height: 100%;
+  left: auto;
+  right: 0;
+  transform-origin: right;
+  transform: rotateY(90deg);
+  background-color: color-mix(in srgb, var(--house-color, #888) 72%, black);
+}
+
+/* Roof: four triangles, each hinged at the top of its own wall
+   (translateZ(--wall-h)) and tilted 45deg inward so all four apexes meet
+   over the centre of the footprint. Terracotta rather than the owner's
+   colour — a real mái ngói reads as roof, and it also keeps the owner's
+   colour doing exactly one job (the walls) instead of two. */
+.faceTop {
+  display: none; /* superseded by the four .roof* faces below — the old single flat lid was the bug */
+}
+
+.roof {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background-color: #b5462f;
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  box-sizing: border-box;
+}
+
+.roofBack {
+  width: 100%;
+  height: var(--roof-run);
+  transform-origin: top;
+  transform: translateZ(var(--wall-h)) rotateX(45deg);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+  background-color: #9c3b28;
+}
+
+.roofFront {
+  width: 100%;
+  height: var(--roof-run);
+  top: auto;
+  bottom: 0;
+  transform-origin: bottom;
+  transform: translateZ(var(--wall-h)) rotateX(-45deg);
+  clip-path: polygon(0 100%, 100% 100%, 50% 0);
+  background-color: #c9563a;
+}
+
+.roofLeft {
+  width: var(--roof-run);
+  height: 100%;
+  transform-origin: left;
+  transform: translateZ(var(--wall-h)) rotateY(-45deg);
+  clip-path: polygon(0 0, 0 100%, 100% 50%);
+  background-color: #ab4230;
+}
+
+.roofRight {
+  width: var(--roof-run);
+  height: 100%;
+  left: auto;
+  right: 0;
+  transform-origin: right;
+  transform: translateZ(var(--wall-h)) rotateY(45deg);
+  clip-path: polygon(100% 0, 100% 100%, 0 50%);
+  background-color: #ab4230;
+}
+
+/* The hotel's roof is gold rather than terracotta (2026-08-23) — the third
+   and final cue separating it from a house, alongside its taller
+   proportions and window grid. Deliberately the board's own established
+   gold (GameView.module.css's --et-gold, re-declared here because
+   BoardTile renders inside GameBoard's own fixed light-board palette, not
+   GameView's navy shell) rather than an arbitrary new colour: a hotel is
+   the top of the property ladder, and gold is already what this app uses
+   for "highest value" everywhere else. */
+.hotel3d .roofBack {
+  background-color: #b8860b;
+}
+
+.hotel3d .roofFront {
+  background-color: #f0b429;
+}
+
+.hotel3d .roofLeft,
+.hotel3d .roofRight {
+  background-color: #d09a1c;
+}

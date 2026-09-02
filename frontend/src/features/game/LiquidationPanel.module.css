@@ -1,0 +1,327 @@
+/* LiquidationPanel — emergency asset-sale sidebar.
+   Draws from GameView.module.css's --et-* custom properties (they cascade
+   normally through nested CSS Modules — only class names are scoped/hashed,
+   not custom properties), same approach every other panel in this screen uses.
+   position: fixed keeps it above the game layout without disrupting the
+   GameView grid; z-index: 48 sits below FlashAuction (50) and above
+   PropertyManager (no explicit z-index, effectively ~auto). */
+
+.panel {
+  position: fixed;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 320px;
+  max-height: 82vh;
+  z-index: 48;
+  display: flex;
+  flex-direction: column;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--et-card-bg);
+  border: 2px solid var(--et-red);
+  box-shadow:
+    0 0 0 1px rgba(239, 68, 68, 0.15),
+    0 8px 40px rgba(0, 0, 0, 0.5),
+    0 0 60px rgba(239, 68, 68, 0.18);
+  animation: slideInRight 0.25s ease-out;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateY(-50%) translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(-50%) translateX(0);
+  }
+}
+
+/* ── Header ── */
+.header {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--et-border);
+}
+
+.alertBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 16px;
+  background: var(--et-red);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #fff;
+}
+
+.alertIcon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.debtInfo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.shortfall {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--et-red);
+  line-height: 1;
+}
+
+.shortfallPaid {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--et-green);
+  line-height: 1;
+}
+
+.balance {
+  font-size: 12px;
+  color: var(--et-text-muted);
+}
+
+
+/* ── Body (scrollable) ── */
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--et-border) transparent;
+}
+
+.loading,
+.empty {
+  margin: 24px auto;
+  text-align: center;
+  font-size: 13px;
+  color: var(--et-text-muted);
+}
+
+/* ── Property grid ── */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+/* ── Individual card ── */
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--et-border);
+  background: var(--et-panel-bg, #131c33);
+  transition: border-color 0.15s;
+}
+
+.card:not(.cardMortgaged):hover {
+  border-color: var(--et-gold);
+}
+
+.cardMortgaged {
+  opacity: 0.75;
+}
+
+.colorBand {
+  height: 8px;
+  flex: none;
+}
+
+/* Gray overlay + badge for mortgaged properties */
+.mortgagedOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(11, 18, 32, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.mortgagedBadge {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(30, 30, 30, 0.85);
+  border: 1px solid #555;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #aaa;
+  white-space: nowrap;
+}
+
+.cardBody {
+  padding: 8px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.tileName {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--et-text);
+  line-height: 1.3;
+  /* Clamp to 2 lines max — long street names shouldn't blow up card height */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.upgradeRow {
+  min-height: 18px;
+  display: flex;
+  align-items: center;
+}
+
+.houseIcons {
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 1px;
+}
+
+.hotelIcon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.noHouses {
+  font-size: 10px;
+  color: var(--et-text-muted);
+}
+
+/* ── Card action buttons ── */
+.cardActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border-top: 1px solid var(--et-border);
+  flex: none;
+}
+
+.sellBtn,
+.mortgageBtn {
+  padding: 8px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s, opacity 0.12s;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.sellBtn {
+  background: rgba(34, 197, 94, 0.12);
+  color: #4ade80;
+  border-right: 1px solid var(--et-border);
+}
+
+.sellBtn:not(:disabled):hover {
+  background: rgba(34, 197, 94, 0.22);
+}
+
+.mortgageBtn {
+  background: rgba(240, 180, 41, 0.1);
+  color: var(--et-gold);
+}
+
+.mortgageBtn:not(:disabled):hover {
+  background: rgba(240, 180, 41, 0.2);
+}
+
+.sellBtn:disabled,
+.mortgageBtn:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+
+/* ── Footer ── */
+.footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--et-border);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.footerHint {
+  font-size: 10px;
+  color: var(--et-text-muted);
+  line-height: 1.4;
+  flex: 1;
+}
+
+.waitBtn {
+  flex: none;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--et-border);
+  background: transparent;
+  color: var(--et-text-muted);
+  cursor: not-allowed;
+  white-space: nowrap;
+  opacity: 0.6;
+}
+
+/* Responsive: on narrow screens push it to bottom as a sheet */
+@media (max-width: 900px) {
+  .panel {
+    right: 0;
+    left: 0;
+    top: auto;
+    bottom: 0;
+    transform: none;
+    width: 100%;
+    max-height: 55vh;
+    border-radius: 14px 14px 0 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: none;
+  }
+
+  @keyframes slideInRight {
+    from {
+      opacity: 0;
+      transform: translateY(24px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* .error / .errorLine removed 2026-09-02 — every raw {errorCode}: {message}
+   render was replaced by the shared ActionNotice component, which brings its
+   own styling. Deleted rather than left behind: an orphaned rule later reads
+   as "something used to render here". */

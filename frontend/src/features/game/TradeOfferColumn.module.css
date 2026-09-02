@@ -1,0 +1,146 @@
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  box-sizing: border-box;
+  background: var(--code-bg);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--text);
+}
+
+.playerName {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.balance {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.propertyList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.empty {
+  margin: 6px 0;
+  font-size: 12px;
+  color: var(--text);
+  font-style: italic;
+}
+
+.propertyRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.propertyRowStatic {
+  cursor: default;
+}
+
+.propertyRowLocked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.propertyName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-h);
+}
+
+.upgradeBadge {
+  flex: none;
+  font-size: 11px;
+}
+
+.mortgagedBadge,
+.lockedBadge {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.mortgagedBadge {
+  background: #c0392b;
+}
+
+.lockedBadge {
+  background: #7f8c8d;
+}
+
+.moneyRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.moneyLabel {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.moneyValue {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.moneyInput {
+  width: 100px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  font-size: 13px;
+  text-align: right;
+}

@@ -1,0 +1,186 @@
+/* Reads GameView.module.css's own --et-* palette (those cascade normally
+   through nested CSS Modules — only class *names* are scoped/hashed).
+   `--et-surface` was used here originally and does not exist in that
+   palette, so the panel painted with no background at all; the real token
+   for this role is --et-panel-bg (2026-09-01 sweep). */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.headerBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--et-card-bg);
+  border: 1px solid var(--et-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.headerBtn:hover {
+  background: var(--et-panel-bg);
+  border-color: var(--et-gold);
+}
+
+.heading {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--et-gold);
+}
+
+.count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--et-gold-dim);
+  color: var(--et-gold);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.toggleIcon {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--et-text-muted);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--et-panel-bg);
+  border: 1px solid var(--et-border);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.hand {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  background: var(--et-card-bg);
+  border: 1px solid var(--et-border);
+  color: var(--et-text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.card:hover:not(:disabled) {
+  background: #39415c;
+  transform: translateY(-2px);
+  border-color: var(--et-gold);
+}
+
+.card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cardOpen {
+  border-color: var(--et-gold);
+  background: var(--et-gold-dim);
+}
+
+.cardIcon {
+  flex: none;
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* One line only — the chip is an identifier, the detail panel below carries
+   the real text. Without this a long card text stretches the whole rail. */
+.cardName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--et-gold);
+  background: rgba(240, 180, 41, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detailText {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--et-text);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.optionButton {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--et-gold);
+  background: var(--et-gold-dim);
+  color: var(--et-text);
+  font-size: 12.5px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.optionButton:hover:not(:disabled) {
+  background: var(--et-gold);
+  color: #241a02;
+}
+
+.optionButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.noneLine {
+  margin: 0;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--et-text-muted);
+}
+
+.cancelButton {
+  align-self: flex-start;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--et-border);
+  background: transparent;
+  color: var(--et-text-muted);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.cancelButton:hover {
+  border-color: var(--et-gold);
+  color: var(--et-gold);
+}

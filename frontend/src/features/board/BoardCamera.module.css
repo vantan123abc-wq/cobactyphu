@@ -1,0 +1,111 @@
+/* Board camera controls, 2026-08-22 — a small floating cluster in the
+   centre column's bottom-right corner (mounted inside GameView.module.css's
+   .center wrapper by GameBoard.jsx, over .boardWrap). Uses this screen's
+   own navy/gold --et-* custom properties (defined on GameView.module.css's
+   .shell, inherited down through the whole in-game screen) — same source
+   every other restyled component in this redesign already draws from. */
+.cluster {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: rgba(11, 18, 32, 0.4);
+  border: 1px solid var(--et-border);
+}
+
+.group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.button {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--et-border);
+  background: transparent;
+  color: var(--et-text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.button:not(:disabled):hover {
+  border-color: var(--et-gold);
+  color: var(--et-gold);
+}
+
+.button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.buttonActive {
+  border-color: var(--et-gold);
+  background: var(--et-gold-dim);
+  color: var(--et-gold);
+}
+
+.zoomValue {
+  flex: 1;
+  min-width: 38px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--et-text-muted);
+}
+
+.rotateStrip {
+  position: relative;
+  flex: 1;
+  min-width: 90px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--et-border);
+  cursor: grab;
+  touch-action: none; /* this element owns horizontal drag itself — don't let the browser also try to scroll/pan on it */
+}
+
+.rotateStrip:active {
+  cursor: grabbing;
+}
+
+.rotateStripLocked {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.rotateStripDot {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--et-gold);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 2px rgba(11, 18, 32, 0.6);
+  pointer-events: none;
+}
+
+.resetButton {
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--et-border);
+  background: transparent;
+  color: var(--et-text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.resetButton:hover {
+  border-color: var(--et-gold);
+  color: var(--et-gold);
+}

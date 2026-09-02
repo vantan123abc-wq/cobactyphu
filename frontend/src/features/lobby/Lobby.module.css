@@ -1,0 +1,240 @@
+.lobby {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.joinCode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 24px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.joinCodeLabel {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.joinCodeValue {
+  font-family: var(--mono);
+  font-size: clamp(24px, 6vw, 32px);
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--text-h);
+  user-select: all;
+}
+
+.playerList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.playerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.playerName {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-h);
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.zodiacGlyph {
+  flex: none;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.hostBadge {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+}
+
+.readyYes {
+  flex: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2f9e6e;
+}
+
+.readyNo {
+  flex: none;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.playerRowEnd {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kickButton {
+  flex: none;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid rgba(192, 57, 43, 0.4);
+  background: rgba(192, 57, 43, 0.1);
+  color: #c0392b;
+  cursor: pointer;
+}
+
+.kickButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kickButton:not(:disabled):hover {
+  background: rgba(192, 57, 43, 0.2);
+}
+
+.zodiacPicker {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.zodiacPickerLabel {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text);
+  text-align: center;
+}
+
+.zodiacGrid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+@media (max-width: 420px) {
+  .zodiacGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.zodiacOption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 4px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.zodiacOption:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.zodiacOption:not(:disabled):hover {
+  background: var(--code-bg);
+}
+
+.zodiacOptionSelected {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.zodiacOptionEmoji {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.zodiacOptionLabel {
+  font-size: 10px;
+  color: var(--text);
+}
+
+.actionButton {
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.actionButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.actionButton:not(:disabled):hover {
+  background: var(--accent-border);
+}
+
+.error {
+  color: #c0392b;
+  font-size: 14px;
+  margin: 0;
+}
+
+.leaveButton {
+  width: 100%;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.leaveButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.leaveButton:not(:disabled):hover {
+  background: var(--code-bg);
+  color: var(--text-h);
+}

@@ -1,0 +1,206 @@
+/* Blocking, full-viewport, like FlashAuction/EventCardModal's own backdrop
+   — but strictly the highest z-index in this file tree (60, above
+   FinalPhaseBanner's 55) since nothing is left to interact with once a
+   match is over; every other overlay's non-collision-via-opaque-backdrop
+   precedent (GameView.jsx's own header comments) applies here too, at the
+   top of the stack rather than in the middle of it. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 16px;
+  box-sizing: border-box;
+  animation: backdropFadeIn 0.25s ease-out;
+}
+
+@keyframes backdropFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(440px, 100%);
+  max-height: 85vh;
+  padding: 26px 22px;
+  box-sizing: border-box;
+  border-radius: 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  animation: modalPopIn 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  text-align: center;
+}
+
+@keyframes modalPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-h);
+}
+
+.reason {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.standings {
+  width: 100%;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.row,
+.rowMe {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--code-bg);
+  border: 1px solid transparent;
+  text-align: left;
+}
+
+.rowMe {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.place {
+  flex: none;
+  width: 32px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-h);
+  text-align: center;
+}
+
+.rowBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.name {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-h);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bankruptTag {
+  font-weight: 600;
+  color: #c0392b;
+}
+
+.breakdown {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.netWorth {
+  flex: none;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-h);
+}
+
+/* ── Winner banner (shown instead of .eyebrow when iWon) ── */
+.winnerBanner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  animation: popIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.winnerCrown {
+  font-size: 48px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 8px rgba(240, 180, 41, 0.6));
+}
+
+.winnerLabel {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: #f0b429;
+}
+
+/* ── Post-game actions ── */
+.actions {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.leaveButton {
+  flex: 1;
+  max-width: 220px;
+  padding: 12px 20px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  color: var(--text-h);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.leaveButton:not(:disabled):hover {
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+}
+
+.leaveButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text);
+  opacity: 0.6;
+}
+

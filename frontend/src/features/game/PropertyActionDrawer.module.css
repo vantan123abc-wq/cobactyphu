@@ -1,0 +1,193 @@
+/* Anchored bottom-right, absolute/fixed per this task's own requirement so
+   it overlays the board without disturbing GameBoard's own grid layout —
+   deliberately not full-screen/opaque (the brief's explicit "hybrid"
+   architecture decision: stay non-blocking, board tactically visible
+   underneath). Caps at ~28vw on wide viewports (within the requested
+   25-30% of screen space), full-width on narrow ones where a fixed 28vw
+   would be too cramped to read. */
+.drawer {
+  position: fixed;
+  right: 16px;
+  bottom: 88px; /* clears GameControls.module.css's own sticky bottom bar (min-height 64px + padding) so the two never overlap */
+  z-index: 20;
+  width: min(320px, 28vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: slideFadeIn 0.25s ease-out;
+}
+
+@media (max-width: 640px) {
+  .drawer {
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
+}
+
+@keyframes slideFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.cardHeader {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.cardBody {
+  padding: 14px 16px;
+  text-align: center;
+}
+
+.name {
+  margin: 0 0 6px;
+  font-size: 18px;
+  color: var(--text-h);
+}
+
+.price {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap; /* lets .blockedReason below claim its own full-width row under the buttons */
+  gap: 8px;
+}
+
+/* Why a build isn't currently possible (2026-08-23) — the specific reason
+   buildRules.js resolved, shown up front instead of letting the player
+   click and receive a raw server rejection code (`INCOMPLETE_GROUP: ...`),
+   which is exactly what a real user report showed happening. */
+.blockedReason {
+  flex: 1 0 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.12);
+  color: #d94a3d;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.buyButton,
+.declineButton {
+  flex: 1;
+  padding: 12px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+
+.buyButton {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+}
+
+.declineButton {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.buyButton:disabled,
+.declineButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.buyButton:not(:disabled):hover {
+  filter: brightness(1.1);
+}
+
+.declineButton:not(:disabled):hover {
+  background: var(--code-bg);
+}
+
+/* ── Extended Info (Costs & Rent Table) ── */
+.costsRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.costsRow .price {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0;
+}
+
+.costsRow strong {
+  color: var(--text-h);
+}
+
+.rentBox {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+
+.rentHeadline {
+  margin: 0 0 8px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text-h);
+}
+
+.rentTable {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rentRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.rentRowLabel {
+  color: var(--text);
+}
+
+.rentRowValue {
+  color: var(--text-h);
+  font-weight: 600;
+}

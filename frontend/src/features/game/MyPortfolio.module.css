@@ -1,0 +1,254 @@
+/* Same collapsible-panel shell as Ledger.module.css (headerBtn/heading/
+   toggleIcon below are copied verbatim, not imported — this project keeps
+   no shared CSS module between sibling panels, same as every other
+   right-column component here). Reads GameView.module.css's --et-* palette,
+   which cascades down normally through nested CSS Modules. */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.headerBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--et-card-bg);
+  border: 1px solid var(--et-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.headerBtn:hover {
+  background: var(--et-panel-bg);
+  border-color: var(--et-gold);
+}
+
+.heading {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--et-gold);
+}
+
+/* Holding count, next to the heading rather than the summary's own $ total
+   — this is the number a player wants to see before ever expanding the
+   panel ("do I even own anything"), the $ total is worth a click for. */
+.count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--et-gold-dim);
+  color: var(--et-gold);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.toggleIcon {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--et-text-muted);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.empty {
+  margin: 0;
+  padding: 12px;
+  font-size: 12px;
+  color: var(--et-text-muted);
+  text-align: center;
+}
+
+/* Two-cell headline: total standing value (engine/netWorth.js's own
+   propertyNetWorth formula, mirrored — see MyPortfolio.jsx's own header)
+   and how many colour sets are complete. Answers "am I doing well" at a
+   glance, before reading a single row. */
+.summary {
+  display: flex;
+  gap: 8px;
+}
+
+.summaryCell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 6px;
+  border-radius: 8px;
+  background: var(--et-card-bg);
+  border: 1px solid var(--et-border);
+}
+
+.summaryLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--et-text-muted);
+}
+
+.summaryValue {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--et-gold);
+}
+
+/* max-height, not flex:1 — GameView.module.css's `.right` column is a
+   plain flex stack with `overflow: hidden` and no scrollbar of its own
+   (Ledger.module.css/PropertyManager.module.css each own their own
+   internal scroll instead, same convention followed here). Without a cap,
+   a player who owns many properties would grow this panel tall enough to
+   push Ledger/PropertyManager out of `.right`'s clipped viewport with no
+   way to reach them. 250px comfortably shows 4-5 rows before it scrolls. */
+.groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 250px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+}
+
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  flex: none;
+}
+
+.groupIcon {
+  width: 12px;
+  height: 12px;
+  color: var(--et-text-muted);
+  flex: none;
+}
+
+.groupName {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--et-text);
+}
+
+.groupCount {
+  font-size: 10px;
+  color: var(--et-text-muted);
+}
+
+.completeBadge {
+  margin-left: auto;
+  color: var(--et-green);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: help;
+}
+
+/* One owned tile — a real button, not a static row: clicking it drives
+   selectProperty(), the same store field GameBoard.jsx's own tile onClick
+   writes to, so this is a second entry point into PropertyManager.jsx's
+   existing build/sell/mortgage actions rather than a new one. */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: var(--et-card-bg);
+  color: var(--et-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.row:hover {
+  background: var(--et-panel-bg);
+}
+
+.selectedRow {
+  border-color: var(--et-gold);
+  background: var(--et-gold-dim);
+}
+
+.mortgagedRow {
+  opacity: 0.65;
+}
+
+.rowName {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rowBuildings {
+  flex: none;
+  font-size: 10px;
+  letter-spacing: -1px; /* the repeated 🏠 glyphs render with a lot of built-in side-bearing at this size — tightens them into one readable cluster */
+}
+
+.rowRent {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--et-gold);
+}
+
+/* Per-property, not per-group (see MyPortfolio.jsx's own rowHasBonus() for
+   why): calculateRent.js's real group bonus only ever helps a member that
+   is itself still unimproved, even inside an otherwise-complete,
+   unmortgaged set. */
+.rowBonus {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--et-gold);
+  color: #1a1200;
+  font-size: 9px;
+  font-weight: 800;
+  cursor: help;
+}
+
+.rowMortgaged {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(239, 68, 68, 0.18);
+  color: var(--et-red);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}

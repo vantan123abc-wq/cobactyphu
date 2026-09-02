@@ -1,0 +1,247 @@
+/* Centered, focus-grabbing overlay — the brief's own explicit contrast with
+   PropertyActionDrawer.module.css's non-blocking corner drawer: a Flash
+   Auction needs every player's immediate attention, not just the current
+   turn player's. Full-viewport backdrop, no dismiss affordance (there's no
+   click-outside-to-cancel action defined anywhere in the wire contract).
+   Docked to the bottom + lighter/blurred (2026-08-22, user request) rather
+   than fully dead-centered and opaque — the board stays visible above the
+   modal instead of being hidden behind it while a player decides. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  padding: 16px;
+  box-sizing: border-box;
+  animation: backdropFadeIn 0.2s ease-out;
+}
+
+@keyframes backdropFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(380px, 100%);
+  max-height: 70vh; /* 2026-08-22: was 90vh — bottom-docked now (see .backdrop), keeping this shorter leaves the board's own top clear rather than the modal nearly filling the viewport height */
+  overflow-y: auto;
+  padding: 22px 20px;
+  box-sizing: border-box;
+  border-radius: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  animation: modalPopIn 0.25s ease-out;
+}
+
+@keyframes modalPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #c0392b;
+}
+
+.propertyCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  /* 2026-08-25: the same content-box trap that put a horizontal scrollbar
+     across RentRiskChoice's dialog. box-sizing is set per-selector in this
+     project, never globally, so `width: 100%` plus a 1px border made this
+     2px wider than the modal — and since .modal sets overflow-y, the other
+     axis computes to `auto`, so even 1px of spill draws a real scrollbar.
+     Measured at exactly 1px of overflow before this line was added. */
+  box-sizing: border-box;
+}
+
+.propertyHeader {
+  width: 100%;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.icon {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.propertyName {
+  margin: 10px 0 12px;
+  font-size: 17px;
+  color: var(--text-h);
+}
+
+.bidInfo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.bidLabel {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.bidAmount {
+  font-size: 34px;
+  font-weight: 700;
+  color: var(--text-h);
+  animation: pulseBid 0.4s ease-out;
+}
+
+@keyframes pulseBid {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.2);
+    color: var(--accent);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.bidderName {
+  font-size: 14px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.participants {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.participantGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.participantLabel {
+  font-size: 12px;
+  color: var(--text);
+  text-align: left;
+}
+
+.participantList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  color: var(--text-h);
+}
+
+.chipLeading {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.chipFolded {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.bidButton {
+  flex: 1;
+  min-width: 100px;
+  padding: 12px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+}
+
+.bidButton:not(:disabled):hover {
+  filter: brightness(1.1);
+}
+
+.foldButton {
+  flex-basis: 100%;
+  padding: 10px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+  cursor: pointer;
+}
+
+.foldButton:not(:disabled):hover {
+  background: var(--code-bg);
+}
+
+.bidButton:disabled,
+.foldButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.status {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* .error / .errorLine removed 2026-09-02 — every raw {errorCode}: {message}
+   render was replaced by the shared ActionNotice component, which brings its
+   own styling. Deleted rather than left behind: an orphaned rule later reads
+   as "something used to render here". */

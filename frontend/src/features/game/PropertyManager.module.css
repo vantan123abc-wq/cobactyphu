@@ -1,0 +1,283 @@
+/* Big centre-screen modal (2026-08-23, user request: clicking a property —
+   from the board or from MyPortfolio.jsx's own list — should show its full
+   details large, in the middle of the screen, not tucked into a small
+   sidebar card). Supersedes the 2026-08-22 redesign's "normal flow child
+   inside the right column" version entirely — this component is no longer
+   mounted inside GameView.module.css's `.right` at all (see GameView.jsx).
+
+   Same translucent + blurred backdrop convention EventCardModal.module.css
+   already established for this exact kind of "big card, board still
+   visible behind it" reveal, at the same z-index tier (45) — a property
+   inspection is user-initiated, not a blocking game decision, so it sits
+   below FlashAuction (50, whole-room-blocking) but level with the other
+   informational/optional overlays. Click-outside-to-dismiss (the backdrop's
+   own onClick in PropertyManager.jsx) is new here too — nothing else in
+   this app's overlay set has it, but a details panel the player opened by
+   choice (not one the server is forcing a decision on) is exactly the case
+   where that's the expected, low-friction way to close it. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 8, 18, 0.52);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  padding: 16px;
+  box-sizing: border-box;
+  animation: backdropFadeIn 0.2s ease-out;
+}
+
+@keyframes backdropFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 92vw);
+  max-height: 82vh;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--et-card-bg);
+  border: 1px solid var(--et-border);
+  /* The property's own color-group swatch (or the neutral gray
+     PropertyManager.jsx falls back to for transport/utility), painted as a
+     real border across the very top of the card — same "printed card"
+     technique EventCardModal.module.css's own `.face` established for the
+     Cơ Hội/Khí Vận reveal, reused here so every "this is a real object with
+     an identity" card in this app reads the same way. Distinct from
+     `.header`'s own colored background band directly beneath it — the
+     border is the card's frame, the header is its title bar; together they
+     read like a flag rather than a duplicate of the same color. */
+  border-top: 8px solid var(--group-color, var(--et-border));
+  animation: panelGrowIn 0.2s cubic-bezier(0.2, 0.72, 0.24, 1) both;
+}
+
+@keyframes panelGrowIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.header {
+  flex: none;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+}
+
+.icon {
+  margin-right: auto;
+  font-size: 20px;
+  line-height: 1;
+  color: #fff;
+}
+
+.ownerBadge {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--et-gold);
+  color: #1a1200;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.closeButton {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.name {
+  margin: 0;
+  font-size: 16px;
+  color: var(--et-text);
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.liquidationBanner {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.15);
+  color: #ff8080;
+}
+
+.owner {
+  font-size: 12px;
+  color: var(--et-text-muted);
+}
+
+.mortgagedBadge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  background: var(--et-red);
+  color: #fff;
+}
+
+/* Rent table (new, 2026-08-22) — real tile.baseRent/tile.rentTable, see
+   PropertyManager.jsx's own comment above where these are computed for why
+   it's the plain printed table, not a live-recomputed "your rent now". */
+.rentHeadline {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--et-text);
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--et-border);
+}
+
+.rentTable {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rentRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.rentRowLabel {
+  color: var(--et-text-muted);
+}
+
+.rentRowValue {
+  color: var(--et-text);
+  font-weight: 600;
+}
+
+.upgradeRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.upgradeLabel {
+  font-size: 12px;
+  color: var(--et-text-muted);
+}
+
+.upgradeValue {
+  font-size: 14px;
+  color: var(--et-text);
+  font-weight: 600;
+}
+
+.supplyRow {
+  margin: 0;
+  font-size: 11px;
+  color: var(--et-text-muted);
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.actionButton {
+  padding: 10px 6px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--et-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--et-text);
+  cursor: pointer;
+}
+
+.actionButton:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--et-gold);
+}
+
+.actionButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+
+.mortgageFooter {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--et-border);
+  text-align: center;
+  font-size: 11px;
+  color: var(--et-text-muted);
+}
+
+/* .error / .errorLine removed 2026-09-02 — every raw {errorCode}: {message}
+   render was replaced by the shared ActionNotice component, which brings its
+   own styling. Deleted rather than left behind: an orphaned rule later reads
+   as "something used to render here". */
+
+/* Monopoly ×2 note under the printed rent table (2026-09-02) — a caption,
+   not a row, so it doesn't read as another rent tier. */
+.rentNote {
+  margin: 6px 0 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--et-gold);
+  text-align: center;
+}

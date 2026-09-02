@@ -1,0 +1,143 @@
+/* GO tile art (2026-08-22) — see GoTileArt.jsx's own header for the full
+   reasoning. Named generically (`.art*`), not go-specific, so this is a
+   reusable pattern for any future special-tile treatment, not a one-off.
+
+   `.artBg` is `position: absolute; inset: 0` inside `.tile`
+   (BoardTile.module.css, `position: relative`) — it deliberately does NOT
+   sit inside `.content` (BoardTile.jsx renders it as `.content`'s one
+   child, but absolute positioning escapes `.content`'s own flex layout and
+   resolves against `.tile` instead, the nearest *positioned* ancestor) —
+   this is what lets it cover the tile's full padding-box edge-to-edge
+   rather than being inset by `.content`'s own padding. `.tile`'s own
+   `overflow: hidden` clips it cleanly to the tile's real bounds. */
+.artBg {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.12em;
+  padding: 0.3em;
+  box-sizing: border-box;
+  overflow: hidden;
+  /* `--art-bg-image` is the real-art hook (see GoTileArt.jsx's header) —
+     `none` today, so only the gradient placeholder underneath ever paints.
+     A future PNG/WebP just needs this custom property set to `url(...)`. */
+  background-image: var(--art-bg-image, none), radial-gradient(120% 140% at 50% 18%, #ff5b5b 0%, #cc2020 45%, #7a0d0d 100%);
+  background-size: cover;
+  background-position: center;
+}
+
+/* Four small gold corner brackets — the brief's own ornate corner-frame
+   motif, simplified to plain border segments (cheap, scales perfectly at
+   any tile size, no image needed). */
+.artCorner {
+  position: absolute;
+  width: 20%;
+  height: 20%;
+  border: 0.1em solid #f0c419;
+  opacity: 0.85;
+}
+.tl {
+  top: 5%;
+  left: 5%;
+  border-right: none;
+  border-bottom: none;
+}
+.tr {
+  top: 5%;
+  right: 5%;
+  border-left: none;
+  border-bottom: none;
+}
+.bl {
+  bottom: 5%;
+  left: 5%;
+  border-right: none;
+  border-top: none;
+}
+.br {
+  bottom: 5%;
+  right: 5%;
+  border-left: none;
+  border-top: none;
+}
+
+.envelope {
+  position: relative;
+  width: 44%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.envelopeBody {
+  width: 80%;
+  height: 64%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #e13a3a, #a91515);
+  border: 0.05em solid #f0c419;
+  border-radius: 0.15em;
+  box-shadow: 0 0.07em 0.16em rgba(0, 0, 0, 0.4);
+}
+
+.envelopeSeal {
+  width: 42%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe27a, #d99b16 70%, #a9740a);
+  box-shadow: inset 0 0 0 0.03em rgba(0, 0, 0, 0.25);
+}
+
+.coin {
+  position: absolute;
+  width: 24%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe27a, #d99b16 70%, #a9740a);
+  border: 0.03em solid #7a4e08;
+  box-shadow: 0 0.05em 0.1em rgba(0, 0, 0, 0.35);
+}
+.coin0 {
+  top: -8%;
+  left: 2%;
+  transform: rotate(-14deg);
+}
+.coin1 {
+  top: -12%;
+  right: 0;
+  transform: rotate(11deg);
+}
+
+/* "Chunky 3D gold" text — a gradient fill (via background-clip) plus a
+   solid drop-shadow underneath reads as embossed/dimensional without any
+   image or filter, the same trick a lot of casual-game UI text uses. */
+.artTitle {
+  font-family: var(--heading);
+  font-size: 1.5em;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: #f0c419; /* fallback for browsers without background-clip: text support */
+  background: linear-gradient(180deg, #fff6d6 0%, #f0c419 55%, #c9910a 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0.05em 0 #6e3600, 0 0.09em 0.14em rgba(0, 0, 0, 0.55);
+  flex: none;
+}
+
+.artSubtitle {
+  font-size: 0.82em;
+  font-weight: 800;
+  line-height: 1;
+  color: #ffe27a;
+  text-shadow: 0 0.04em 0 #6e3600, 0 0.06em 0.1em rgba(0, 0, 0, 0.5);
+  flex: none;
+}

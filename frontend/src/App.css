@@ -1,0 +1,163 @@
+#center {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  place-content: center;
+  place-items: center;
+  flex-grow: 1;
+  padding: 32px 20px;
+  text-align: center;
+
+  @media (max-width: 1024px) {
+    padding: 32px 20px 24px;
+    gap: 12px;
+  }
+}
+
+.auth-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  place-content: center;
+  place-items: center;
+  flex-grow: 1;
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+  padding: 32px 20px;
+  box-sizing: border-box;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  border-bottom: 1px solid var(--border);
+}
+
+.auth-tabs button {
+  flex: 1;
+  padding: 10px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.auth-tabs button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+}
+
+.auth-form label {
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+.auth-form input {
+  font: inherit;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.auth-form input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.auth-form button[type='submit'] {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 6px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  font: inherit;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.auth-error {
+  color: #d92d20;
+  font-size: 14px;
+  margin: 0;
+}
+
+/* ── OTP Step ─────────────────────────────────────────────── */
+.otp-form {
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+}
+
+.otp-instruction {
+  font-size: 14px;
+  color: var(--text-h);
+  margin: 0;
+  line-height: 1.6;
+}
+
+.otp-inputs {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.otp-input {
+  width: 44px !important;
+  height: 52px;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 600;
+  padding: 0 !important;
+  border-radius: 10px;
+  border: 2px solid var(--border) !important;
+  background: var(--bg);
+  color: var(--text-h);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.1s;
+  caret-color: transparent;
+}
+
+.otp-input:focus-visible {
+  outline: none !important;
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+  transform: scale(1.08);
+}
+
+.otp-input:not(:placeholder-shown) {
+  border-color: var(--accent) !important;
+}
+
+.resend-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+  text-decoration: underline;
+  opacity: 0.8;
+
+  &:hover {
+    opacity: 1;
+  }
+}

@@ -1,0 +1,154 @@
+/* 3D tumbling dice, 2026-08-22 — see DiceRoll.jsx for the face/rotation
+   contract. Sizes derive from --side (defined on .board, inherits here) so
+   the dice scale with the board like everything else on it. */
+
+.layer {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 3; /* above tiles and .tokenLayer's z-index 2 — dice land on top of the board, never behind a token */
+  pointer-events: none;
+  /* Cancels .board's own rotateX(55deg) rotateZ(45deg + --spin) so the dice
+     face the viewer as real objects standing on the board, rather than
+     lying flat and skewed into the board's surface — the same "un-rotate
+     this one element" trick GameBoard.module.css's .token already uses for
+     player pieces. translateZ lifts them clear of the surface. Camera
+     slice (2026-08-22): `--spin` wasn't a thing when this was first
+     written — the board's own Z rotation is user-adjustable now, and this
+     counter-rotation has to track it exactly or the dice would visibly tilt
+     as soon as the board is rotated. */
+  /* 2026-08-23: was a hard-coded rotateX(-55deg), which stopped cancelling
+     the board's own tilt the moment that tilt became adjustable (and again
+     when its default moved 55 -> 40) — the dice would sit at a wrong angle
+     instead of facing the camera. Reads the live --tilt now, same fix
+     `.tokenStandee`/`.fromGhost` already got in GameBoard.module.css. */
+  transform: translate(-50%, -50%) rotateZ(calc(-45deg - var(--spin, 0deg))) rotateX(calc(-1 * var(--tilt, 55deg)))
+    translateZ(calc(var(--side) * 0.02));
+  transform-style: preserve-3d;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--side) * 0.012);
+}
+
+.tray {
+  display: flex;
+  gap: calc(var(--side) * 0.022);
+  /* A real vanishing point just for the dice. The board itself deliberately
+     has no `perspective` (true isometric projection has none — see
+     GameBoard.module.css), but the dice are physical objects sitting on it,
+     and a little perspective is what sells them as cubes rather than flat
+     hexagons. */
+  perspective: calc(var(--side) * 0.8);
+  transform-style: preserve-3d;
+}
+
+.cube {
+  --die: calc(var(--side) * 0.052);
+  --half: calc(var(--die) / 2);
+  position: relative;
+  width: var(--die);
+  height: var(--die);
+  transform-style: preserve-3d;
+  /* Resting state — the exact orientation showing this die's real value.
+     The animation below starts several whole turns away from here and
+     interpolates back, so the tumble always ends on the correct face. */
+  transform: rotateX(var(--rx-end)) rotateY(var(--ry-end));
+  animation: tumble 1.15s cubic-bezier(0.22, 0.8, 0.3, 1) backwards;
+}
+
+/* Whole extra turns (multiples of 360deg) are visually identity, so every
+   keyframe below shows a different tumbling orientation while 100% lands
+   exactly on the real face. The vertical travel gives it a drop-and-settle
+   bounce rather than a spin in place. */
+@keyframes tumble {
+  0% {
+    transform: translateY(calc(var(--side) * -0.13)) rotateX(calc(var(--rx-end) + 1440deg)) rotateY(calc(var(--ry-end) + 1080deg));
+  }
+  55% {
+    transform: translateY(calc(var(--side) * 0.012)) rotateX(calc(var(--rx-end) + 360deg)) rotateY(calc(var(--ry-end) + 180deg));
+  }
+  72% {
+    transform: translateY(calc(var(--side) * -0.022)) rotateX(calc(var(--rx-end) + 100deg)) rotateY(calc(var(--ry-end) + 40deg));
+  }
+  88% {
+    transform: translateY(calc(var(--side) * 0.004)) rotateX(calc(var(--rx-end) + 12deg)) rotateY(calc(var(--ry-end) + 6deg));
+  }
+  100% {
+    transform: translateY(0) rotateX(var(--rx-end)) rotateY(var(--ry-end));
+  }
+}
+
+.face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  padding: 12%;
+  box-sizing: border-box;
+  background: linear-gradient(150deg, #ffffff, #e8e4d8);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 14%;
+  box-shadow: inset 0 0 calc(var(--die) * 0.18) rgba(0, 0, 0, 0.14);
+  backface-visibility: hidden;
+}
+
+/* Each face parked on its own side of the cube. Opposite pairs sum to 7,
+   matching a real die — DiceRoll.jsx's FACE_ROTATION is the exact inverse
+   of these, which is what makes a rolled value land face-up correctly. */
+.face1 {
+  transform: translateZ(var(--half));
+}
+.face6 {
+  transform: rotateY(180deg) translateZ(var(--half));
+}
+.face3 {
+  transform: rotateY(90deg) translateZ(var(--half));
+}
+.face4 {
+  transform: rotateY(-90deg) translateZ(var(--half));
+}
+.face5 {
+  transform: rotateX(90deg) translateZ(var(--half));
+}
+.face2 {
+  transform: rotateX(-90deg) translateZ(var(--half));
+}
+
+.pip {
+  align-self: center;
+  justify-self: center;
+  width: 62%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #16192a;
+  box-shadow: inset 0 -0.5px 1px rgba(255, 255, 255, 0.35);
+}
+
+.doubleBadge {
+  padding: 0.15em 0.7em;
+  border-radius: 999px;
+  font-size: calc(var(--side) * 0.019);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  background: #f0b429;
+  color: #241a02;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  animation: badgePop 0.4s ease-out 1.05s backwards; /* waits for the dice to actually settle before announcing the result */
+}
+
+@keyframes badgePop {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}

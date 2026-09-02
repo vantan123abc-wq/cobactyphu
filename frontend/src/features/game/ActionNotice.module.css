@@ -1,0 +1,85 @@
+/* Shared rejection notice (2026-09-02). Reads GameView.module.css's own
+   --et-* palette, which cascades normally through nested CSS Modules.
+
+   Three tones, and the colour carries real meaning rather than decoration:
+   a rule refusal is not an error the player should feel bad about, a timing
+   refusal usually resolves itself, and only a genuine fault is alarming.
+   Making all three red — which the old single error line did — trained
+   players to read every refusal as something broken. */
+
+.notice {
+  margin: 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  /* Long explanations must not stretch a control bar; they wrap instead. */
+  max-width: 420px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.icon {
+  flex: none;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.title {
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.body {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--et-text-muted);
+}
+
+/* A rules refusal — the common case. Gold, matching every other "this is how
+   the game works" affordance in this UI, deliberately NOT red. */
+.rule {
+  background: rgba(240, 180, 41, 0.1);
+  border-color: rgba(240, 180, 41, 0.5);
+}
+.rule .title {
+  color: var(--et-gold);
+}
+
+/* Wrong moment rather than wrong move — neutral, because waiting is usually
+   the whole fix. */
+.timing {
+  background: rgba(139, 147, 173, 0.14);
+  border-color: var(--et-border);
+}
+.timing .title {
+  color: var(--et-text);
+}
+
+/* Something actually went wrong. The only tone that gets alarm colouring. */
+.fault {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.55);
+}
+.fault .title {
+  color: #ff8f6b;
+}
+
+/* For already-crowded surfaces (auction modal, liquidation sidebar): title
+   only, single line, no explanatory body. */
+.compact {
+  padding: 6px 10px;
+  max-width: none;
+}
+.compact .title {
+  font-size: 11.5px;
+}

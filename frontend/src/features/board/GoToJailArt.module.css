@@ -1,0 +1,82 @@
+/* Go To Jail tile art (2026-08-22) — see GoToJailArt.jsx's own header.
+   Same reusable `.art*` pattern GoTileArt.module.css established. */
+.artBg {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1em;
+  padding: 0.3em;
+  box-sizing: border-box;
+  overflow: hidden;
+  background-image: var(--art-bg-image, none), radial-gradient(120% 130% at 50% 15%, #ff9a3d 0%, #e2531b 45%, #8a1f0a 100%);
+  background-size: cover;
+  background-position: center;
+}
+
+.warnBadge {
+  position: absolute;
+  top: 6%;
+  left: 6%;
+  width: 16%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #ffe14d;
+  color: #6e1a00;
+  font-weight: 900;
+  font-size: 0.9em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 0.06em #fff8, 0 0.05em 0.1em rgba(0, 0, 0, 0.4);
+}
+
+/* The traffic baton — a short white/red striped bar, tilted like it's
+   mid-swing. */
+.baton {
+  width: 46%;
+  height: 14%;
+  border-radius: 999px;
+  background: repeating-linear-gradient(45deg, #fff 0 12%, #d81e1e 12% 24%);
+  border: 0.04em solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0.06em 0.14em rgba(0, 0, 0, 0.4);
+  transform: rotate(-18deg);
+  flex: none;
+}
+
+/* The whistle — a small gold circle with a highlight, "glowing". */
+.whistle {
+  width: 18%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff6c2, #f0c419 60%, #a9740a);
+  box-shadow: 0 0 0.35em 0.05em rgba(255, 224, 77, 0.75);
+  flex: none;
+}
+
+.artTitle {
+  font-family: var(--heading);
+  font-size: 1.35em;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: #fff3d6;
+  text-shadow: 0 0.05em 0 #6e1a00, 0 0.09em 0.14em rgba(0, 0, 0, 0.55);
+  flex: none;
+}
+
+/* A plain downward chevron ("you're being sent away") — deliberately not a
+   geometrically-aimed arrow toward the real Jail tile, see this component's
+   own header for why. */
+.chevron {
+  width: 0;
+  height: 0;
+  border-left: 0.5em solid transparent;
+  border-right: 0.5em solid transparent;
+  border-top: 0.6em solid #ffe14d;
+  filter: drop-shadow(0 0.05em 0.06em rgba(0, 0, 0, 0.45));
+  flex: none;
+}

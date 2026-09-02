@@ -1,0 +1,276 @@
+/* GameView redesign, 2026-08-22 — palette + 3-column shell. --et-* custom
+   properties are scoped to .shell only (not index.css) — deliberately a
+   fixed navy/gold theme for the in-game screen specifically, not tied to
+   the app's own light/dark-adaptive tokens (confirmed via AskUserQuestion).
+   PlayersPanel/Ledger/PropertyManager/GameControls's own module CSS all
+   read these same custom properties (they cascade normally through nested
+   CSS Modules — only class *names* are scoped/hashed, not custom
+   properties), kept in one place here rather than redefined per file. */
+.shell {
+  --et-bg: #0b1220;
+  --et-panel-bg: #131c33;
+  --et-card-bg: #1b2542;
+  --et-border: #2a3555;
+  --et-gold: #f0b429;
+  --et-gold-dim: rgba(240, 180, 41, 0.14);
+  --et-text: #f4f6fb;
+  --et-text-muted: #8b93ad;
+  --et-red: #ef4444;
+  --et-green: #22c55e;
+  --et-glow: #6366f1;
+
+  /* Full-bleed (2026-08-22). index.css caps `#root` at 1126px — right for
+     the auth/lobby pages, but it squeezed the whole 3-column game screen
+     into a narrow centered column, leaving the board no room to render at a
+     readable size (a real user report: the board was cut off and its text
+     unreadable). Scoped to this component so Login/LobbyDiagnostic/Lobby
+     keep the 1126px reading width they're designed around.
+
+     `position: fixed; inset: 0` rather than the more usual
+     `width: 100vw; margin-inline: calc(50% - 50vw)` breakout: `100vw`
+     counts the vertical scrollbar's width, so that version overflowed by
+     ~15px and produced a horizontal scrollbar, which stole viewport height,
+     which then made the 100vh min-height overflow too — a real circular
+     scrollbar feedback loop, measured live, not hypothetical. `inset: 0`
+     matches the actual viewport with no scrollbar arithmetic at all. The
+     modals mounted alongside this shell are themselves `position: fixed`
+     and are unaffected — nothing here creates a containing block for them
+     (no transform/filter/contain on this element). */
+  position: fixed;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  color: var(--et-text);
+  text-align: left; /* App.css's #center sets text-align: center on every view; this screen manages its own alignment per element */
+  overflow: hidden;
+
+  /* ── Vietnamese Heritage Background ──────────────────────────────────────
+     Layered background sử dụng hoa văn Việt Nam truyền thống (trống đồng,
+     đồng tiền cổ, hạc, sen) trên nền xanh đêm đậm. Ảnh nền tile ở opacity
+     thấp giữ cho UI panels vẫn đọc được rõ ràng phía trên.
+     Yêu cầu file: /vn_game_bg.jpg trong thư mục public/.
+  */
+  background-color: #07101e;
+  background-image:
+    /* Heavy dark vignette — keeps side panels readable */
+    radial-gradient(ellipse 75% 75% at 50% 50%, transparent 20%, rgba(4, 8, 18, 0.75) 100%),
+    /* Golden corner lantern glows (Tết đèn lồng) */
+    radial-gradient(ellipse 50% 45% at 0%   0%,   rgba(180, 120, 20, 0.22) 0%, transparent 55%),
+    radial-gradient(ellipse 40% 38% at 100% 0%,   rgba(180, 120, 20, 0.16) 0%, transparent 50%),
+    radial-gradient(ellipse 45% 45% at 100% 100%, rgba(120, 60,  20, 0.20) 0%, transparent 55%),
+    radial-gradient(ellipse 38% 38% at 0%   100%, rgba(120, 60,  20, 0.16) 0%, transparent 50%),
+    /* Subtle board-area centre luminance */
+    radial-gradient(ellipse 55% 48% at 50% 52%, rgba(20, 40, 90, 0.45) 0%, transparent 80%),
+    /* Vietnamese heritage image — trống đồng, hạc, sen, đồng tiền */
+    url('/vn_wealth_bg.jpg');
+
+  background-size:
+    cover,        /* vignette */
+    cover, cover, cover, cover,  /* corner glows */
+    cover,        /* centre luminance */
+    480px 480px;  /* heritage tile — sized so motifs are visible but subtle */
+
+  background-repeat:
+    no-repeat,
+    no-repeat, no-repeat, no-repeat, no-repeat,
+    no-repeat,
+    repeat;       /* tile the heritage image */
+
+  background-position:
+    center,
+    top left, top right, bottom right, bottom left,
+    center,
+    0% 0%;
+}
+
+/* ── Animated ambient shimmer ──────────────────────────────────────────────
+   A very slow, subtle breathing glow on the .shell::before pseudo-element
+   gives the background life without distracting from the board itself.
+   Uses transform so it never triggers layout/paint — compositor-only. */
+.shell::before {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  background:
+    radial-gradient(ellipse 50% 40% at 30% 40%, rgba(212, 175, 55, 0.06) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 50% at 70% 65%, rgba(100, 60, 200, 0.05) 0%, transparent 70%);
+  animation: bgShimmer 18s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* The two layout children sit above the ::before shimmer (z-index 0).
+   Scoped to exactly `.topbar`/`.body` — NOT `.shell > *` — because that
+   also matched every `position: fixed` modal mounted as a sibling
+   (EventCardModal, PropertyManager, FlashAuction, TradeWindow,
+   GameOverScreen, …): `.shell > *` and each `.backdrop` have equal
+   specificity, GameView.module.css loads last, so `position: relative;
+   z-index: 1` won and dropped every overlay into normal flow at the bottom
+   of the shell (2026-08-30 bug report: the event-card modal rendering
+   half-off-screen at the bottom instead of centred). The modals carry their
+   own `position: fixed` + z-index 40–60 and already paint above the shimmer. */
+.shell > .topbar,
+.shell > .body {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes bgShimmer {
+  from { transform: scale(1)    rotate(0deg); opacity: 0.7; }
+  to   { transform: scale(1.08) rotate(3deg); opacity: 1;   }
+}
+
+
+.topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  border-bottom: 1px solid var(--et-border);
+}
+
+.brand {
+  font-family: var(--heading);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--et-gold);
+  letter-spacing: -0.3px;
+}
+
+.topbarRight {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.greeting {
+  font-size: 13px;
+  color: var(--et-text-muted);
+}
+
+.logoutButton {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--et-border);
+  background: transparent;
+  color: var(--et-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.logoutButton:hover {
+  border-color: var(--et-gold);
+  color: var(--et-gold);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  /* Trimmed from 240/280 (2026-08-22): measured live that the board's own
+     size is width-bound on a 16:9 screen (the isometric diamond's footprint
+     is 1.41x wider than tall, so horizontal space runs out well before
+     vertical does) — every px given back here goes straight into the board.
+     Kept in sync with GameBoard.module.css's own `--side` budget, which
+     subtracts these exact widths. */
+  grid-template-columns: 176px 1fr 212px;
+  gap: 12px;
+  padding: 12px;
+  box-sizing: border-box;
+  overflow: auto; /* whole-shell fallback scroll if the board's own min-height (GameBoard.module.css) ever needs more room than the viewport gives */
+}
+
+.left {
+  min-width: 0;
+}
+
+.center {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  border: 1px solid rgba(42, 53, 85, 0.3); /* Softer border */
+  background: transparent; /* Changed from var(--et-panel-bg) so the background pattern shows through */
+  overflow: hidden;
+}
+
+/* 2026-08-23: the round pill's own absolute positioning moved out to this
+   shared rail, so RoundEffectsBar's chips stack under it instead of each
+   needing their own hand-placed offset. */
+.statusRail {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  /* The board underneath is draggable (BoardCamera's rotate/pan) — this
+     rail is pure readout, so it must never intercept that drag. Its own
+     children re-enable events only if they ever need to. */
+  pointer-events: none;
+}
+
+.turnPill {
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(11, 18, 32, 0.75);
+  border: 1px solid var(--et-border);
+  color: var(--et-text);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.boardWrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.right {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden; /* Ledger.module.css/PropertyManager.module.css each own their own internal scroll instead */
+}
+
+/* Intermediate step (2026-08-22): on a ~1366px laptop the 220/264 columns
+   eat 43% of the width, and since the board is width-bound (see the
+   grid-template-columns comment above) that pushed tile text down to ~8px.
+   Narrowing the side panels here buys the board back real size before the
+   full stacked layout kicks in at 900px. Kept in sync with
+   GameBoard.module.css's own matching --side budget for this range. */
+@media (max-width: 1500px) and (min-width: 901px) {
+  .body {
+    grid-template-columns: 152px 1fr 188px;
+  }
+}
+
+@media (max-width: 900px) {
+  .body {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .left {
+    order: 1;
+  }
+
+  .center {
+    order: 2;
+    min-height: 420px;
+  }
+
+  .right {
+    order: 3;
+  }
+}

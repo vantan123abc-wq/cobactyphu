@@ -1,0 +1,74 @@
+/* Sits in GameView.module.css's own `.statusRail`, directly under the
+   "Vòng N" pill — deliberately outside the isometric board rather than on
+   its surface: .center (GameBoard.module.css) inherits the board's
+   rotateX(55deg)/rotateZ(45deg) transform, which skews everything drawn
+   there. Decorative art survives that fine (the Trống Đồng medallion), a
+   number a player has to actually read does not. Reads GameView's own
+   --et-* palette (custom properties cascade through nested CSS Modules —
+   only class names are scoped). */
+
+.bar {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 999px;
+  background: rgba(11, 18, 32, 0.82);
+  border: 1px solid var(--et-border);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--et-text);
+  white-space: nowrap;
+  animation: effectChipIn 0.35s ease-out;
+}
+
+@keyframes effectChipIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* "bad"/"good" describe the effect on the *board economy at large*, not on
+   any one player — a rent hike is good for owners and bad for visitors, so
+   the colour tracks the direction of the number (up = hotter/red) rather
+   than pretending to know which side the reader is on. */
+.bad {
+  border-color: rgba(239, 68, 68, 0.55);
+}
+
+.bad .label {
+  color: var(--et-red);
+}
+
+.good {
+  border-color: rgba(34, 197, 94, 0.55);
+}
+
+.good .label {
+  color: var(--et-green);
+}
+
+.icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.duration {
+  padding-left: 6px;
+  border-left: 1px solid var(--et-border);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--et-text-muted);
+}

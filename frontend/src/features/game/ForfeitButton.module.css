@@ -1,0 +1,113 @@
+/* Mounted in GameView.jsx's topbar, next to "Đăng xuất" — reads that same
+   scoped --et-* palette (GameView.module.css). A quieter, danger-tinted
+   sibling of .logoutButton (same pill shape/border, red instead of gold on
+   hover) — visually related but never confusable with it, since one just
+   leaves the browser tab and the other permanently forfeits the match. */
+.trigger {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--et-border);
+  background: transparent;
+  color: var(--et-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.trigger:hover {
+  border-color: var(--et-red);
+  color: var(--et-red);
+}
+
+/* Confirm dialog — a real, if small, modal (not a browser confirm()) so it
+   matches this app's own visual language and can show a live rejection
+   reason inline. Deliberately opaque-ish and dead-centre, unlike this
+   session's other translucent/bottom-docked overlays — a destructive
+   irreversible action gets the most attention-commanding treatment in the
+   app, not the least. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55; /* above FlashAuction's 50 — a forfeit decision outranks even a whole-room auction, since it removes one of the participants from it entirely */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.dialog {
+  width: min(380px, 92vw);
+  padding: 22px 20px;
+  border-radius: 14px;
+  background: var(--et-card-bg);
+  border: 1px solid var(--et-red);
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.8);
+}
+
+.title {
+  margin: 0 0 10px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--et-text);
+}
+
+.body {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--et-text-muted);
+}
+
+.body strong {
+  color: var(--et-red);
+}
+
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.cancelButton {
+  flex: 1;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--et-border);
+  background: transparent;
+  color: var(--et-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cancelButton:hover:not(:disabled) {
+  border-color: var(--et-gold);
+}
+
+.confirmButton {
+  flex: 1;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid var(--et-red);
+  background: var(--et-red);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.confirmButton:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.cancelButton:disabled,
+.confirmButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* .error / .errorLine removed 2026-09-02 — every raw {errorCode}: {message}
+   render was replaced by the shared ActionNotice component, which brings its
+   own styling. Deleted rather than left behind: an orphaned rule later reads
+   as "something used to render here". */
