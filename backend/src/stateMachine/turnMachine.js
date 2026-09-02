@@ -2192,9 +2192,10 @@ function handleEventChoice(gameState, boardTiles, action, now) {
   // own MOVE_TO_NEAREST_UNOWNED_PROPERTY branch already uses, and for the
   // identical reason (moveByStepsAndResolve's own header comment).
   const moveIntent = intents.find((i) => i.action === 'MOVE_RELATIVE');
-  if (moveIntent) {
-    return moveByStepsAndResolve(cleared, boardTiles, player.id, moveIntent.steps, now);
-  }
+    if (moveIntent) {
+      const walkState = { ...cleared, lastRoll: { die1: moveIntent.steps, die2: 0, total: moveIntent.steps, isDouble: false } };
+      return moveByStepsAndResolve(walkState, boardTiles, player.id, moveIntent.steps, now);
+    }
 
   // GRANT_PROPERTY_PROTECTION (C08 "Bảo Vệ Tài Sản", 2026-08-25) — intercepted
   // here for the same reason MOVE_RELATIVE is: its real input isn't in the
@@ -3210,3 +3211,5 @@ export function transitionTurn(gameState, boardTiles, action, now) {
       throw new InvalidTurnActionError(gameState.phase, action.type);
   }
 }
+
+

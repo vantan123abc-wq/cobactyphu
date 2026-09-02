@@ -295,7 +295,24 @@ export default function EventCardModal() {
 
           <div className={styles.faceBody}>
             {card ? (
-              <p className={styles.cardText}>{card.text}</p>
+              <>
+                <p className={styles.cardText}>{card.text}</p>
+                {!isChoicePending && card.type === 'CHOICE' && gameState?.lastRoll && card.options?.some(o => o.intents?.some(i => i.action === 'DIE_FACE_REWARD')) && (
+                  <div style={{ marginTop: '16px', padding: '12px', background: 'rgba(0,0,0,0.2)', borderRadius: '8px', textAlign: 'center' }}>
+                    <div style={{ fontWeight: 'bold', fontSize: '1.2em', marginBottom: '8px' }}>
+                      Kết quả tung xúc xắc: {gameState.lastRoll.total}
+                    </div>
+                    {(() => {
+                      const gained = eventTransactions.filter(t => t.toPlayerId === me?.id).reduce((sum, t) => sum + t.amount, 0);
+                      const lost = eventTransactions.filter(t => t.fromPlayerId === me?.id).reduce((sum, t) => sum + t.amount, 0);
+                      const net = gained - lost;
+                      if (net > 0) return <div style={{ color: '#4ade80', fontWeight: 'bold' }}>Bạn nhận được: ${net}</div>;
+                      if (net < 0) return <div style={{ color: '#f87171', fontWeight: 'bold' }}>Bạn bị trừ: ${-net}</div>;
+                      return <div style={{ color: '#9ca3af' }}>Không nhận được thêm tiền!</div>;
+                    })()}
+                  </div>
+                )}
+              </>
             ) : Object.keys(cards).length === 0 ? (
               <p className={styles.unknownCard}>Đang tải nội dung lá bài…</p>
             ) : (
@@ -422,3 +439,5 @@ export default function EventCardModal() {
     </div>
   )
 }
+
+
