@@ -1,12 +1,23 @@
-/* GameView redesign, 2026-08-22 — palette + 3-column shell. --et-* custom
-   properties are scoped to .shell only (not index.css) — deliberately a
-   fixed navy/gold theme for the in-game screen specifically, not tied to
-   the app's own light/dark-adaptive tokens (confirmed via AskUserQuestion).
-   PlayersPanel/Ledger/PropertyManager/GameControls's own module CSS all
-   read these same custom properties (they cascade normally through nested
-   CSS Modules — only class *names* are scoped/hashed, not custom
-   properties), kept in one place here rather than redefined per file. */
-.shell {
+/* GameView redesign, 2026-08-22 — palette + 3-column shell. A deliberately
+   fixed navy/gold theme for the in-game screen, not tied to the app's own
+   light/dark-adaptive tokens (confirmed via AskUserQuestion).
+   PlayersPanel/Ledger/PropertyManager/GameControls's own module CSS all read
+   these same custom properties (they cascade normally through nested CSS
+   Modules — only class *names* are scoped/hashed, not custom properties),
+   kept in one place here rather than redefined per file.
+
+   MOVED from `.shell` to `:root`, 2026-09-02. They were scoped to `.shell`
+   because every consumer was a descendant of it — no longer true: the forfeit
+   dialog is portalled to <body> to escape the topbar's stacking context (see
+   ForfeitButton.jsx), which put it outside `.shell` and would have resolved
+   every one of these to nothing, i.e. an unstyled transparent panel — the
+   exact failure the undefined `--et-surface` token produced on the Card
+   Inventory panel. `:root` is still a SINGLE definition, not a copy, so
+   there is nothing here to drift out of sync; the Login/Lobby screens simply
+   never reference these names. Declared in this file rather than index.css so
+   it stays next to the theme it documents. `:root` is a global selector and
+   passes through CSS Modules unhashed. */
+:root {
   --et-bg: #0b1220;
   --et-panel-bg: #131c33;
   --et-card-bg: #1b2542;
@@ -18,7 +29,9 @@
   --et-red: #ef4444;
   --et-green: #22c55e;
   --et-glow: #6366f1;
+}
 
+.shell {
   /* Full-bleed (2026-08-22). index.css caps `#root` at 1126px — right for
      the auth/lobby pages, but it squeezed the whole 3-column game screen
      into a narrow centered column, leaving the board no room to render at a
@@ -110,7 +123,11 @@
    of the shell (2026-08-30 bug report: the event-card modal rendering
    half-off-screen at the bottom instead of centred). The modals carry their
    own `position: fixed` + z-index 40–60 and already paint above the shimmer. */
-.shell > .topbar,
+.shell > .topbar {
+  position: relative;
+  z-index: 50;
+}
+
 .shell > .body {
   position: relative;
   z-index: 1;
