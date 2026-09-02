@@ -3025,6 +3025,27 @@ test('FORFEIT_MATCH: the second-to-last player forfeiting ends the match immedia
   assert.equal(gameState.players.find((p) => p.id === 'gp-alice').finalRank, 1);
 });
 
+// The test above has the NON-current player forfeit. This is the other half,
+// and the one a real player actually hits: at a 2-player table you press
+// "Đầu Hàng" on your own turn. resolveForfeit takes its `wasCurrentPlayer`
+// branch here, so it is genuinely different code — and it was untested while a
+// user-reported bug ("ấn đầu hàng nhưng không kết thúc ván đấu") pointed
+// straight at it. The engine turned out to be correct in both branches; the
+// defect was in ForfeitButton.jsx, which threw the finished state away before
+// GameOverScreen could render it. Pinning the engine half so a future change
+// cannot quietly make the report true.
+test('FORFEIT_MATCH: the CURRENT player forfeiting with one opponent left also ends the match immediately', () => {
+  const state = { ...baseGameState(), phase: 'POST_ACTIONS' }; // alice is the current player
+  const { gameState } = transitionTurn(state, board, { type: 'FORFEIT_MATCH', payload: { playerId: 'gp-alice' } });
+
+  assert.equal(gameState.status, 'finished');
+  assert.equal(gameState.phase, null);
+  assert.equal(gameState.endReason, 'elimination');
+  assert.equal(gameState.players.find((p) => p.id === 'gp-bob').finalRank, 1); // the survivor wins
+  assert.equal(gameState.players.find((p) => p.id === 'gp-alice').finalRank, 2);
+  assert.equal(gameState.players.find((p) => p.id === 'gp-alice').bankrupt, true);
+});
+
 test('FORFEIT_MATCH: rejects a non-existent player, an already-bankrupt player, and the sole remaining player', () => {
   const base = { ...baseGameState(), phase: 'POST_ACTIONS' };
 

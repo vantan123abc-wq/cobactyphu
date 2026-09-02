@@ -1840,6 +1840,69 @@ The confirmation disarms on any `stateVersion`/`lastError` change, since being o
 
 *Caveat on all of the above: bot policy, not human play. The per-auction economics are the meaningful output; "auctions per match" is an artifact of an arbitrary 0.6 trigger probability and predicts nothing about real frequency.*
 
+### Why FORCE_AUCTION is dead heads-up, and the one lever that fixes it — 2026-09-02
+
+Followed up "is there a way to balance this at 2 players". Diagnosed the failures rather than guessing at a fix.
+
+**Every single heads-up failure is "the sole bidder could not afford it" — never "they didn't want it".** 100.0% of failures, at every bidder-reserve policy tested. The failure profile is the giveaway: average base price **$268**, sole bidder's cash **$333**, sole bidder's own valuation of the lot **$339**. They value it *above* list and still cannot pay, because the host only forces an auction when the host themselves is cash-short — and at a 2-player table both players hit that squeeze in the same phase of the game.
+
+Checked this is not a bot artifact by varying how much cash the bidder insists on keeping:
+
+| bidder keeps in reserve | $250 | $100 | $0 |
+|---|---|---|---|
+| auctions that settle | 11.5% | 20.4% | 28.6% |
+| failures that are "can't afford" | 100% | 100% | 100% |
+
+Even a reckless bidder holding nothing back fails 71% of the time. The diagnosis is structural, not a policy artifact.
+
+**The obvious fix does not work.** Opening below base price does raise the settle rate (at 50%: 39% → 75% depending on reserve) — but the broker commission is a percentage of that same, now-lower price, while the fee is a flat $20. The host's expected value per auction:
+
+| | settle rate | avg winning bid | commission | fee | **host EV** |
+|---|---|---|---|---|---|
+| today (open at 100%) | 11.5% | $234 | $46.8 | $20 | **−$14.6** |
+| open at 50%, fee kept | 39.1% | ~$143 | $28.6 | $20 | **−$8.8** |
+| open at 100%, **fee waived** | 11.5% | $234 | $46.8 | $0 | **+$5.4** |
+
+Lowering the opening bid trades a rare large commission for a frequent small one and never escapes the flat fee — it also hands the opponent lots at half price, which is worse for the host than the problem being solved. **The fee, not the opening bid, is what makes heads-up forcing a losing move.**
+
+**Recommendation: waive the auction fee when fewer than 2 players are eligible to bid.** Rationale rather than a number: the fee buys brokerage of a *contest*, and with the Broker rule excluding the host, a 2-player table structurally has exactly one bidder — there is no contest to broker, so there is nothing to charge for. It leaves the fee doing its documented anti-abuse job at 3+ players, where competition genuinely exists, instead of repealing it globally.
+
+Deliberately **not** recommending a refund-on-FAILED rule, which fixes the same arithmetic: `BOARD_SPECIFICATION.md` explicitly keeps the fee unrefunded to prevent "fee-free market research", and a global refund would repeal that. The eligible-bidder condition is narrower and does not touch it.
+
+What heads-up forcing becomes under the waiver: *"I cannot afford this — take it at list price now, or nobody gets it."* Costless to attempt, but not free of consequence: the opponent may take a lot they wanted. Rough exchange when they do — opponent pays $277 cash for something they value at $339 (+$62), host receives $55 commission from the Bank — which is close to even, and the host risks nothing when the opponent cannot pay.
+
+**DECIDED 2026-09-02: no change. Closed, not deferred.** User's call — "thôi kệ đi, coi như 2 người không cần đấu giá": a 2-player table simply is not the mode Flash Auction is for, and that is an acceptable shape rather than a defect to engineer around. Nothing above is pending work; it is kept as the *reasoning* for why heads-up forcing is a weak move, so a future session recognises the measurement has already been done and does not reopen it. The one thing that did ship from this thread is the fold-button warning above, which stands on its own.
+
+## Surrender did not end the match — 2026-09-02
+
+User report: *"hiện ấn đầu hàng nhưng không kết thúc ván đấu"*.
+
+**The engine was never wrong.** Probed the real state machine for both halves of the 2-player case — the current-turn player forfeiting and the non-current one — and both return `status: 'finished'`, `phase: null`, `endReason: 'elimination'`, with final ranks assigned. `playerId` was fine too: `ForfeitButton` sends an empty payload, but `socketServer.js` injects `playerId: gamePlayer.id` into every action, so the handler always had the right actor.
+
+**The client threw the result away.** `ForfeitButton.jsx` watched for its own `bankrupt` flag and, the moment it arrived, called `disconnectSocket()` + `resetAfterGame()`. `resetAfterGame` nulls `currentGameState`, and `GameOverScreen` bails on `status !== 'finished'` — so the screen that was about to show the outcome could never render. The player was dropped straight back to the lobby with no result and no final rank: from their side, indistinguishable from the match simply not ending.
+
+That auto-leave was written for the case it describes — a 3+ player match that **carries on without you**, where staying connected to a game you are no longer in is pointless. It was just never conditioned on that actually being true. Fixed by leaving only while the match is still running; when your own surrender ended it, stay and let `GameOverScreen` (which owns its own "Trở về sảnh") show the result.
+
+**Second defect in the same dialog, found while fixing the first.** The confirmation read *"Trận đấu tiếp tục với những người chơi còn lại"* unconditionally — at a 2-player table that is wrong every single time, since surrendering hands the opponent an immediate elimination win. The dialog now derives `survivors` exactly the way `resolveForfeit` derives `stillStanding`, and when you are the second-to-last player it says so: title becomes "Đầu hàng và kết thúc trận đấu?" and the body states the match ends at once and the remaining player wins.
+
+**Test gap this exposed.** The only end-the-match forfeit test had the **non-current** player forfeit — but a real player presses "Đầu Hàng" on their own turn, which takes `resolveForfeit`'s separate `wasCurrentPlayer` branch. That branch was uncovered while a bug report pointed straight at it. Added a test pinning it (survivor gets `finalRank` 1, forfeiter 2 and `bankrupt`). Suite **697 pass / 0 fail**, frontend lint + build clean.
+
+**Worth generalising:** the engine being right and the suite being green did not mean the feature worked. Three of the last four defects in this project have been a correct server result that the client discarded, mis-gated, or mis-described — that boundary, not the state machine, is where this codebase actually breaks.
+
+### Follow-up: the forfeit dialog rendered *behind* the board — 2026-09-02
+
+User screenshot: the confirm dialog painting under the 3D board, text and buttons unreadable. Same failure family as the `.shell > *` modal bug, and it turns out the fix for that one is what left this case behind.
+
+**Why.** `.shell > .topbar, .shell > .body { position: relative; z-index: 1 }` makes **both** a stacking context at the *same* level, so `.body` — later in the DOM — paints over `.topbar` unconditionally. Every other modal in the app is a **direct child of `.shell`**, which is exactly what lets its z-index mean anything. `ForfeitButton` cannot be: its trigger belongs in the topbar. So `.backdrop { z-index: 55 }` was being resolved *inside* `.topbar` and could never exceed it — no z-index value would have worked.
+
+**Fixed with a portal to `<body>`**, not a bigger number: the board is 3D-transformed, so a z-index arms race inside that subtree is unwinnable in principle. This is the first `createPortal` in the codebase; the reasoning is recorded at the call site so it does not read as an arbitrary deviation from the direct-child-of-`.shell` convention.
+
+**Second defect the portal itself created, caught before shipping.** The dialog and its nested `ActionNotice` read six `--et-*` custom properties, and those were declared on `.shell`. Portalling to `<body>` puts the dialog *outside* that subtree, so every one would have resolved to nothing — an unstyled transparent panel, the exact failure the undefined `--et-surface` token produced on the Card Inventory panel. Moved the palette from `.shell` to `:root`. It remains a **single definition, not a copy**, so there is nothing to drift; Login/Lobby simply never reference these names. Verified in the built CSS rather than assumed: `:root{--et-bg:…}` is emitted global and unhashed with all 11 tokens, while `.shell` still hashes to `._shell_m1y8t_9`.
+
+**Checked for siblings, found one latent but not broken.** `EventCardHistory` is the only other component that renders a full-screen `position: fixed` backdrop while nested rather than being a direct child of `.shell`. It sits in `.statusRail` (`position: absolute; z-index: 1`), which *is* a stacking context — but the rail's z-index 1 beats the board's `auto`, so its backdrop does paint above the board today. Left alone deliberately: it works, and the user reported nothing. It is fragile though — giving `.boardWrap` any z-index ≥ 1 would break it exactly the way the forfeit dialog broke.
+
+**The general rule this codebase keeps re-learning:** a `z-index` is only ever compared against siblings inside the *nearest stacking context*. When an overlay renders behind something it should cover, the question is never "is the number big enough" but "which stacking context is this number being resolved in".
+
 ## Known gaps flagged in `SECURITY_DESIGN.md` (not yet closed)
 
 1. ~~`build_house`/`sell_house`/`mortgage`/`unmortgage`/`propose_trade`/`respond_trade` have no Socket.IO event handlers yet~~ — **fully closed 2026-08-18** (all six), see "Backend slice — property economy" and "Backend slice — Trade System" above.

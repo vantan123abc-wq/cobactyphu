@@ -58,13 +58,22 @@ export default function PropertyActionDrawer() {
   // property is untouched by this (separate phase, separate boolean below).
   const [dismissedBuildPropertyId, setDismissedBuildPropertyId] = useState(null)
 
+  const me = gameState?.players?.find((p) => p.playerId === user?.id)
+  const isMyTurn = me != null && me.turnOrder === gameState?.currentTurnIndex
+  const tile = staticBoard?.tiles?.find((t) => t.position === me?.currentPosition)
+  
+  // 2026-09-02: User requested setting the starting price for FORCE_AUCTION
+  const [basePrice, setBasePrice] = useState(0)
+  useEffect(() => {
+    if (tile?.price && gameState?.phase === 'AWAITING_PURCHASE') {
+      setBasePrice(tile.price)
+    }
+  }, [tile?.id, gameState?.phase])
+
   useEffect(() => {
     setBusy(false)
   }, [gameState?.stateVersion, lastError])
 
-  const me = gameState?.players?.find((p) => p.playerId === user?.id)
-  const isMyTurn = me != null && me.turnOrder === gameState?.currentTurnIndex
-  const tile = staticBoard?.tiles?.find((t) => t.position === me?.currentPosition)
   const property = gameState?.properties?.find((p) => p.boardTileId === tile?.id)
 
   const isAwaitingPurchase = gameState?.phase === 'AWAITING_PURCHASE'
@@ -179,11 +188,6 @@ export default function PropertyActionDrawer() {
       <div className={styles.actions}>
         {isAwaitingPurchase && (
           <>
-            {/* Affordability mirrored 2026-08-25 alongside the server-side
-                fix. handleBuyProperty had no balance check at all until
-                then, so this button could genuinely take a player negative;
-                it now rejects with INSUFFICIENT_BALANCE, and disabling here
-                means the player sees why instead of a raw rejection. */}
             <button
               type="button"
               className={styles.buyButton}
@@ -193,16 +197,31 @@ export default function PropertyActionDrawer() {
             >
               Mua đứt (${tile.price})
             </button>
-            <button
-              type="button"
-              className={styles.declineButton}
-              disabled={busy || (typeof tile.price === 'number' && me.currentBalance < Math.ceil(Math.max(20, Math.min(80, tile.price * 0.05))))}
-              title={typeof tile.price === 'number' && me.currentBalance < Math.ceil(Math.max(20, Math.min(80, tile.price * 0.05))) ? `Không đủ tiền trả phí — bạn có $${me.currentBalance}` : 'Trả phí mở sàn để nhận 20% hoa hồng nếu đấu giá thành công. Lưu ý: bạn là chủ sàn nên KHÔNG được đặt giá trong phiên này.'}
-              onClick={() => act('FORCE_AUCTION')}
-            >
-              Mở sàn (${Math.ceil(Math.max(20, Math.min(80, (tile.price || 0) * 0.05)))})
-            </button>
-            <button type="button" className={styles.declineButton} style={{ background: 'transparent', color: '#ccc', border: '1px solid #444' }} disabled={busy} onClick={() => act('SKIP_PURCHASE')}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '12px', color: '#888' }}>
+                <span>Giá khởi điểm đấu giá:</span>
+                <span>Phí mở: ${currentAuctionFee}</span>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input 
+                  type="number" 
+                  value={basePrice}
+                  onChange={(e) => setBasePrice(Math.max(1, parseInt(e.target.value) || 0))}
+                  style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #444', background: '#222', color: '#fff' }}
+                />
+                <button
+                  type="button"
+                  className={styles.declineButton}
+                  disabled={busy || cannotAffordAuction}
+                  title={cannotAffordAuction ? `Không đủ tiền trả phí — bạn có $${me.currentBalance}` : 'Trả phí mở sàn để nhận 20% hoa hồng nếu đấu giá thành công. Lưu ý: bạn là chủ sàn nên KHÔNG được đặt giá trong phiên này.'}
+                  onClick={() => act('FORCE_AUCTION')}
+                  style={{ flex: 1, margin: 0 }}
+                >
+                  Mở sàn
+                </button>
+              </div>
+            </div>
+            <button type="button" className={styles.declineButton} style={{ background: 'transparent', color: '#ccc', border: '1px solid #444', marginTop: '8px' }} disabled={busy} onClick={() => act('SKIP_PURCHASE')}>
               Bỏ qua (Miễn phí)
             </button>
           </>

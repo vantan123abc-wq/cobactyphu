@@ -1984,13 +1984,14 @@ function handleSkipPurchase(gameState) {
  * auction's property stays unowned and the initiator cannot re-buy it this
  * turn (settleAuction always targets POST_ACTIONS).
  */
-function handleForceAuction(gameState, boardTiles) {
+function handleForceAuction(gameState, boardTiles, action) {
   const player = getCurrentPlayer(gameState);
   const tile = findTileAt(boardTiles, player.currentPosition);
   const property = gameState.properties.find((p) => p.boardTileId === tile.id);
   const bank = getBankPlayer(gameState);
 
-  const fee = calculateAuctionFee(tile.price);
+  const basePrice = action?.payload?.basePrice ?? tile.price;
+  const fee = calculateAuctionFee(basePrice);
   if (player.currentBalance < fee) {
     // 2026-09-02: was an InvalidTurnActionError, which socketServer.js's
     // errorCodeFor() maps to PHASE_MISMATCH — so a player who simply lacked
@@ -2021,7 +2022,7 @@ function handleForceAuction(gameState, boardTiles) {
     .filter((p) => !p.isBank && !p.bankrupt && p.id !== player.id)
     .map((p) => p.id);
   
-  const pendingAuction = startAuction(property.id, tile.price, player.id, eligibleBidders, bank.id);
+  const pendingAuction = startAuction(property.id, basePrice, player.id, eligibleBidders, bank.id);
 
   return {
     gameState: { ...afterFee, phase: 'FLASH_AUCTION_ACTIVE', pendingAuction },

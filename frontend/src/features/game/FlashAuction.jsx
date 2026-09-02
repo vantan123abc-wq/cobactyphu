@@ -45,10 +45,22 @@ export default function FlashAuction() {
   const gameState = useGameStore((s) => s.currentGameState)
   const staticBoard = useGameStore((s) => s.staticBoard)
   const lastError = useGameStore((s) => s.lastError)
+  const deadlineAt = useGameStore((s) => s.deadlineAt)
 
   const [displayNames, setDisplayNames] = useState({})
   const [busy, setBusy] = useState(false)
   const [confirmFold, setConfirmFold] = useState(false)
+  const [timeLeft, setTimeLeft] = useState(0)
+
+  useEffect(() => {
+    if (!deadlineAt) return
+    const update = () => {
+      setTimeLeft(Math.max(0, Math.floor((new Date(deadlineAt) - new Date()) / 1000)))
+    }
+    update()
+    const intId = setInterval(update, 1000)
+    return () => clearInterval(intId)
+  }, [deadlineAt])
 
   useEffect(() => {
     if (!roomId) return
@@ -152,6 +164,11 @@ export default function FlashAuction() {
           <div className={styles.propertyCard}>
             <div className={styles.propertyHeader} style={{ background: headerColor ?? 'var(--code-bg)' }}>
               <TileIcon type={tile.tileType} className={styles.icon} />
+              {deadlineAt && (
+                <div style={{ marginLeft: 'auto', fontWeight: 'bold', fontSize: '18px', color: timeLeft <= 5 ? '#ff4d4f' : 'inherit', paddingRight: '8px' }}>
+                  Còn {timeLeft}s
+                </div>
+              )}
             </div>
             <h3 className={styles.propertyName}>{tile.name}</h3>
           </div>
