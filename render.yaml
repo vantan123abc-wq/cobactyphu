@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: cobactyphu-backend
+    env: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm run start
+    envVars:
+      - key: SUPABASE_URL
+        value: https://qpbyfgzujwzueprzuurk.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
