@@ -2144,6 +2144,38 @@ function handleEventChoice(gameState, boardTiles, action, now) {
   const card = EVENT_CARDS[gameState.pendingEventCardId];
   const { optionId, probabilityRoll, dieFaceRoll } = action.payload;
 
+  // DEADLOCK ESCAPE (2026-09-02) — when the drawer can afford NO option on
+  // this card, the card fizzles: revealed, then resolved as a no-op straight
+  // to POST_ACTIONS. This is the same "an ineligible draw is an honest
+  // 'you drew this but weren't eligible' no-op" semantics the `eligibility`
+  // field already documents (domain/eventDictionary.js), applied to the case
+  // where affordability is lost AFTER the draw.
+  //
+  // It was a real, reproducible hard stall. C11_CU_DANH_LIEU is gated at
+  // `currentBalance >= 50` on draw and its SINGLE option costs $50 — but
+  // trades (and GAMBLE_RENT, and USE_INVENTORY_CARD) are deliberately
+  // phase-independent, so the drawer's cash can fall below $50 while the
+  // card is still pending. From there:
+  //   - AWAITING_EVENT_CHOICE allows exactly one action, MAKE_EVENT_CHOICE,
+  //     and every call threw INSUFFICIENT_BALANCE — the player had no legal
+  //     move at all;
+  //   - the AWAITING_EVENT_CHOICE timeout synthesized that same doomed
+  //     choice (timers.js deliberately fell back to an unaffordable option
+  //     when none was affordable), so handleTurnTimeout logged the rejection
+  //     and returned with the timer already cleared — the room froze for
+  //     EVERY player, permanently, if the drawer went AFK.
+  // Same root shape as the settleAuction deadlock fixed 2026-09-01: a guard
+  // that assumed money cannot move during a phase where, since trades became
+  // phase-independent, it demonstrably can.
+  //
+  // Deliberately narrow: only when NOTHING is affordable. Picking an
+  // unaffordable option while an affordable one exists is still genuinely
+  // invalid input and still rejected with INSUFFICIENT_BALANCE.
+  const options = card?.options ?? [];
+  if (options.length > 0 && options.every((o) => player.currentBalance < (o.validation?.amount ?? 0))) {
+    return { gameState: { ...gameState, pendingEventCardId: null, phase: 'POST_ACTIONS' }, transactions: [] };
+  }
+
   const intents = resolveChoice(gameState, player.id, card, optionId, probabilityRoll, dieFaceRoll);
   const cleared = { 
     ...gameState, 

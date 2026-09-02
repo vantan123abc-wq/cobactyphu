@@ -197,7 +197,7 @@ export default function PropertyActionDrawer() {
               type="button"
               className={styles.declineButton}
               disabled={busy || (typeof tile.price === 'number' && me.currentBalance < Math.ceil(Math.max(20, Math.min(80, tile.price * 0.05))))}
-              title={typeof tile.price === 'number' && me.currentBalance < Math.ceil(Math.max(20, Math.min(80, tile.price * 0.05))) ? `Không đủ tiền trả phí — bạn có $${me.currentBalance}` : 'Trả phí mở sàn để nhận 20% hoa hồng nếu đấu giá thành công'}
+              title={typeof tile.price === 'number' && me.currentBalance < Math.ceil(Math.max(20, Math.min(80, tile.price * 0.05))) ? `Không đủ tiền trả phí — bạn có $${me.currentBalance}` : 'Trả phí mở sàn để nhận 20% hoa hồng nếu đấu giá thành công. Lưu ý: bạn là chủ sàn nên KHÔNG được đặt giá trong phiên này.'}
               onClick={() => act('FORCE_AUCTION')}
             >
               Mở sàn (${Math.ceil(Math.max(20, Math.min(80, (tile.price || 0) * 0.05)))})

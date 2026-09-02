@@ -159,6 +159,15 @@ function buildEventChoiceDefaultAction(gameState, boardTiles, randomSource) {
   const balance = player?.currentBalance ?? 0;
 
   const affordable = options.filter((o) => (o.validation?.amount ?? 0) <= balance);
+  // When NOTHING is affordable there is no valid choice to synthesize, so
+  // this falls back to the full list on purpose. That used to hand
+  // transitionTurn an action it rejected with INSUFFICIENT_BALANCE, which
+  // froze the room permanently (handleTurnTimeout logs and returns, and the
+  // timer is already cleared) — see handleEventChoice's own DEADLOCK ESCAPE
+  // comment for the full reproduction. turnMachine.js now fizzles a card
+  // nobody can afford into a no-op, so this fallback resolves the phase
+  // instead of stalling it. Keep both halves: this one keeps the default
+  // well-formed, that one keeps it applicable.
   const pool = affordable.length > 0 ? affordable : options;
   const riskless = pool.find((o) => !(o.intents ?? []).some((i) => RISK_INTENT_ACTIONS.includes(i.action)));
   const option = riskless ?? pool[0];

@@ -1751,6 +1751,95 @@ Reachable only via a race (the drawer mirrors the fee formula correctly and disa
 ### Result
 Backend **694 pass / 0 fail**. Frontend lint + build clean. No engine/state-machine invariant defects found this pass — the three highest-severity findings were all frontend gating drifting from server rules, which remains this codebase's dominant bug shape.
 
+### Second sweep pass, same day — a reproducible ROOM DEADLOCK (bug 5)
+
+Asked again for anything left. Went after the worst available failure mode first: a timeout default action the state machine then rejects. `handleTurnTimeout` logs it and returns with the timer already cleared, so the room is left in a phase **with no timer covering it** — the code's own comment names this as the reason it logs loudly. Audited all 9 phases' defaults; the payload-dependent ones (`LIQUIDATION_REQUIRED`, `AWAITING_EVENT_CHOICE`) are the only ones that can be built wrong, and one of them could be.
+
+**`C11_CU_DANH_LIEU` could freeze a room permanently.** The card is eligibility-gated at `currentBalance >= 50` on draw and has exactly **one** option, costing $50. But trades — and `GAMBLE_RENT` and `USE_INVENTORY_CARD` — are deliberately phase-independent, so the drawer's cash can fall below $50 *after* the draw, while the card is still pending. From there:
+
+- `AWAITING_EVENT_CHOICE` permits exactly one action, `MAKE_EVENT_CHOICE`, and every call threw `INSUFFICIENT_BALANCE` — **the player had no legal move at all**;
+- `buildEventChoiceDefaultAction` fell back to the full option list when nothing was affordable (`pool = affordable.length > 0 ? affordable : options`), so the timeout synthesized that same doomed choice;
+- `handleTurnTimeout` caught the rejection, logged, returned — timer gone, phase unchanged. **Frozen for every player in the room**, not just the drawer, and unrecoverable if they went AFK. (A trade could still rescue them, since trades bypass the phase — but that requires a willing opponent and an attentive player.)
+
+Reproduced end to end before fixing (balance $500 → default accepted → `POST_ACTIONS`; balance $40 → `EventChoiceError/INSUFFICIENT_BALANCE`, default inapplicable), then re-run after fixing to confirm both paths reach `POST_ACTIONS`.
+
+**Same root shape as the `settleAuction` deadlock fixed 2026-09-01**: a guard written when money could not move during that phase, left unrevisited after trades became phase-independent. Worth treating as a standing review question — *"what happens to this invariant if the player's balance changes mid-phase?"* — rather than a one-off.
+
+**Fix**: `handleEventChoice` now fizzles a card **nobody can afford** into a no-op straight to `POST_ACTIONS` — the same "an ineligible draw is an honest *you drew this but weren't eligible* no-op" semantics `eligibility` already documents, applied to affordability lost after the draw. Deliberately narrow: choosing an unaffordable option **while an affordable one exists** is still real invalid input and still rejected with `INSUFFICIENT_BALANCE`. Both halves have tests; `timers.js`'s fallback keeps the default well-formed and now has a comment explaining why both halves are needed.
+
+The pre-existing test `MAKE_EVENT_CHOICE (C11): OPT_GAMBLE is rejected when the player cannot afford the $50 stake` was **asserting the deadlock** — it passed for weeks precisely because the frozen behaviour was the tested behaviour. Rewritten to assert the fizzle.
+
+### Also cleared this pass (no defect)
+`buildDefaultAction`'s other 8 phases; `buildLiquidationDefaultAction` (its candidate list got *strictly larger* with the per-property mortgage change, so it is safer than before, and it was already correctly owner-scoped); the `affordable` filter's field (`o.validation?.amount`) genuinely matches what `resolveChoice` checks; only 1 of 6 CHOICE cards has a cost gate on every option.
+
+### ⚠ Concurrent session: 6 auction tests are RED and it is not from this work
+Mid-sweep, the parallel session changed `handleForceAuction`'s bidder eligibility in `turnMachine.js`:
+
+```
+- // Every real, non-bankrupt player is eligible to bid — including the initiator (unchanged from V1).
+- const eligibleBidders = afterFee.players.filter((p) => !p.isBank && !p.bankrupt).map((p) => p.id);
++ // Every real, non-bankrupt player EXCEPT the initiator is eligible to bid
++ // (V2 Broker rule: The auction host cannot bid on their own auction).
++ const eligibleBidders = afterFee.players.filter((p) => !p.isBank && !p.bankrupt && p.id !== player.id).map((p) => p.id);
+```
+
+A real design change (the host can no longer bid on their own auction), but its 6 tests still asserted the initiator is an active bidder, so they failed — the first failure's diff was literally the initiator missing from `activeBidders`. Reported rather than silently "fixed", since guessing at another session's in-flight intent is how two people overwrite each other in a repo with no git.
+
+**Resolved on the user's instruction ("cập nhật đi") — the tests now match the new rule. Suite back to 696/696.**
+
+The interesting part was that the fix was *not* mechanical. Excluding the host means **every auction has one fewer bidder than there are players**, so two test helpers no longer produced the situations their names promised: the 2-player state gave a solo bidder, and the 3-player state gave two — leaving nothing to exercise "a bidder leaves and more than one still remains". Renamed the helpers for how many players can actually **bid** (`soloBidderAuctionState` / `twoBidderAuctionState` / `threeBidderAuctionState`) and added a fourth player (Dave) so the three-bidder case still exists. Test-by-test:
+
+- `FORCE_AUCTION` happy path — `activeBidders` is now `['gp-bob']`, host excluded.
+- `FOLD_AUCTION` "more than one remains" and `FORFEIT_MATCH` "other bidders remain" — moved up to the new 4-player helper; both now end on `['gp-bob', 'gp-dave']`.
+- `FOLD_AUCTION` "folds down to the last bidder" and the fold-triggered Near-Miss test — each lost a step, because Alice can no longer fold out of an auction she was never in; Carol's fold is now the one that resolves it. Confirms in passing that **a folded bidder still collects Near-Miss** (it is computed from the `bids` log, not from who is still standing) — noted inline, since that is easy to break later.
+- `AUCTION_TIMEOUT` Near-Miss test — one-line assertion change; every bid in it was already Bob's or Carol's, so all the money assertions held unchanged.
+
+Also propagated beyond the tests, which the change had not yet reached: `GAME_STATE_MACHINE.md` §Flash Auction still said bids come from "any player… including the player who just declined", and `BOARD_SPECIFICATION.md`'s Broker section did not state the rule at all — both corrected, including the consequence that **at a two-player table forcing an auction leaves exactly one eligible bidder**. `PropertyActionDrawer`'s "Mở sàn" tooltip now warns the host they will not be able to bid *before* they pay the fee — material information that was missing. (`FlashAuction.jsx` already handled it: the parallel session had added an `iAmInitiator` branch, so the frontend was correct, just undocumented.)
+
+### Measured: what the V2 Broker rule actually costs and buys — 2026-09-02
+
+A/B'd the host-cannot-bid rule against V1 (host bids like anyone else). Both arms were **frozen snapshots of `backend/src` copied into a scratch dir**, one line patched in the copy — the live tree was never touched, so the parallel session's edits could not perturb a run. 150 matches per cell, 2/3/4 players, identical bot policy in both arms.
+
+**Two harness bugs had to be fixed before any number meant anything**, both worth remembering:
+1. The bots valued a lot at 0.85 × price, but a Flash Auction **opens at 100% of base price** and every bid must strictly exceed the standing one — so no bot could ever legally bid and *both* arms reported a meaningless 100% failure rate. Valuation now starts at the price itself (what you would pay landing on it) and scales with real group synergy.
+2. The bots folded whenever they did not want to raise — including while **leading**. Since the 2026-09-01 revision, folding *withdraws the folder's own bids*, so a leading bidder who folds throws away the lot they had already won. Fixed to let the clock run (`AUCTION_TIMEOUT`) instead, which is how a real auction ends.
+
+#### The exploit the rule closes: host shill-bidding
+A host who can afford the lot forces an auction anyway, then bids it up to just under the best genuine bidder's ceiling — inflating the winner's payment and therefore their own 20% commission. Per auction:
+
+| | 2p V1 | 2p V2 | 3p V1 | 3p V2 | 4p V1 | 4p V2 |
+|---|---|---|---|---|---|---|
+| Host net (commission − fee) | −$0.8 | **−$5.2** | +$10.9 | **+$6.6** | +$22.1 | **+$16.3** |
+| Winning bid premium over base | 8.9% | **5.0%** | 10.8% | **8.3%** | 13.1% | **9.9%** |
+| Host wins their own auction | 12.4% | **0%** | 14.4% | **0%** | 15.1% | **0%** |
+
+Shill-bidding was worth a consistent **+$4 to +$6 per auction** and inflated settling prices by **~3 percentage points**. Real, repeatable at every table size, and the rule removes it completely.
+
+#### What it costs ordinary play: nearly nothing
+With bots that force auctions only on lots they cannot afford themselves, **the 2-player arms are numerically identical** (12.1% settled, host net −$14.4, both). The reason is structural: the trigger for forcing is "I cannot afford this", and the opening bid is the full base price — so a host who forces can never afford to bid either. At 3p the host's net moves −$1.8 → −$4.9; at 4p +$10.1 → +$11.2. No meaningful cost.
+
+**Verdict: keep the rule.** It removes a consistent edge and costs essentially nothing.
+
+#### Separate, pre-existing problem this uncovered: FORCE_AUCTION is a bad move at 2 players
+Normal play, 2 players: **87.9% of forced auctions FAIL** (fee burned, nobody gets the lot), and **100% of the ones that settle go to the opponent at the minimum raise (base + $10)**. Average host result **−$14.4 per auction**. Not caused by the Broker rule — identical in both arms — but by three things compounding:
+- the auction **opens at 100% of base price**, so no lot can ever be won below list;
+- with one opponent there is **no competition**, so the price never moves past the minimum raise;
+- that single bidder often cannot afford base+10, so the auction simply fails and the fee is lost.
+
+Forcing an auction heads-up is therefore close to a pure $20 donation. Options if this is worth changing: reopen below base price (V0 used 50%), scale or refund the fee when only one bidder is eligible, or disable `FORCE_AUCTION` at a 2-player table. **No change made — this is a design decision.**
+
+#### UX gap found while fixing the harness — FIXED
+`foldBidder` withdraws the folder's own bids, so **a sole leading bidder who folds forfeits a lot they had already won** and the auction resolves FAILED. At a 2-player table the opponent is *always* the sole bidder (the Broker rule bars the host), so this is the ordinary shape of a heads-up auction rather than a corner case — and `FlashAuction.jsx`'s "Bỏ cuộc (Fold)" button offered it with no warning and no disabled state. The engine is behaving as designed; the button was not telling the truth about the consequence.
+
+Fixed with a two-step confirm on the fold button, armed only when folding actually costs something:
+- **not leading** → unchanged, one click, no warning (folding there is free);
+- **leading, others still active** → warns the bid will be *withdrawn* and the lead passes to the best surviving bid (wording checked against `auction.test.js`'s "a leader who folds withdraws their bid and the auction falls back to the best surviving one" — the auction *continues*, so the copy deliberately does not claim the lot changes hands);
+- **leading and the sole bidder** → warns the auction will FAIL with nobody getting the property, and points out that simply waiting for the timer wins it.
+
+The confirmation disarms on any `stateVersion`/`lastError` change, since being outbid or left alone invalidates the warning it is showing. **Deliberately a confirm rather than a disabled button** — folding while ahead is a legal action, and disabling it would repeat the jail-fine bug fixed earlier the same day, where the UI deleted a move the server allows.
+
+*Caveat on all of the above: bot policy, not human play. The per-auction economics are the meaningful output; "auctions per match" is an artifact of an arbitrary 0.6 trigger probability and predicts nothing about real frequency.*
+
 ## Known gaps flagged in `SECURITY_DESIGN.md` (not yet closed)
 
 1. ~~`build_house`/`sell_house`/`mortgage`/`unmortgage`/`propose_trade`/`respond_trade` have no Socket.IO event handlers yet~~ — **fully closed 2026-08-18** (all six), see "Backend slice — property economy" and "Backend slice — Trade System" above.

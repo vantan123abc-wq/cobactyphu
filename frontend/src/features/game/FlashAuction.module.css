@@ -245,3 +245,27 @@
    render was replaced by the shared ActionNotice component, which brings its
    own styling. Deleted rather than left behind: an orphaned rule later reads
    as "something used to render here". */
+
+/* Fold confirmation (2026-09-02). Folding withdraws the folder's own bids, so
+   a leading bidder who folds throws away a lot they were winning — and at a
+   2-player table, where the Broker rule leaves the opponent as the only
+   bidder, that is the ordinary case rather than a corner one. The button stays
+   enabled (folding while ahead is legal); it just has to say what it costs
+   first. */
+.foldWarning {
+  flex-basis: 100%;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent-bg);
+  color: var(--text-h);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.foldButtonArmed {
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+}

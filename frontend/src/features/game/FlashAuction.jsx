@@ -48,6 +48,7 @@ export default function FlashAuction() {
 
   const [displayNames, setDisplayNames] = useState({})
   const [busy, setBusy] = useState(false)
+  const [confirmFold, setConfirmFold] = useState(false)
 
   useEffect(() => {
     if (!roomId) return
@@ -62,6 +63,10 @@ export default function FlashAuction() {
 
   useEffect(() => {
     setBusy(false)
+    // Disarm the fold confirmation too: any state change can have moved the
+    // ground under it (someone outbid me, a rival folded and left me alone),
+    // and a warning that describes the previous position is worse than none.
+    setConfirmFold(false)
   }, [gameState?.stateVersion, lastError])
 
   if (!gameState || !staticBoard || gameState.phase !== 'FLASH_AUCTION_ACTIVE' || !gameState.pendingAuction) {
@@ -89,6 +94,30 @@ export default function FlashAuction() {
   const iAmInitiator = me != null && auction.initiatorId === me.id
   const nextBidAmounts = BID_INCREMENTS.map((inc) => auction.currentBid + inc)
 
+  // What folding would actually COST me right now, or null when it is the
+  // harmless "I'm out, carry on" it looks like.
+  //
+  // Since 2026-09-01 foldBidder WITHDRAWS the folder's own bids and recomputes
+  // the winner from the surviving ones, so folding while ahead throws away the
+  // bid that was winning. The extreme case is real and, at a 2-player table,
+  // routine: the V2 Broker rule bars the host from bidding, so the opponent is
+  // the ONLY active bidder — folding there hands back a lot they had already
+  // won and resolves the auction as FAILED, with nobody getting the property.
+  // Measured 2026-09-02 (PROJECT_STATUS.md): 100% of settled 2-player auctions
+  // are won at the minimum raise by that sole bidder, so this is the normal
+  // shape of a heads-up auction, not a corner case.
+  //
+  // Deliberately a CONFIRM, not a disable: folding while ahead is a legal
+  // action and disabling it would repeat the jail-fine bug fixed earlier the
+  // same day, where the UI deleted a move the server allows.
+  const iAmLeading = me != null && auction.highestBidderId === me.id
+  const iAmSoleBidder = auction.activeBidders.length === 1 && iAmActive
+  const foldCost = !iAmLeading
+    ? null
+    : iAmSoleBidder
+      ? `Bạn đang là người trả giá DUY NHẤT và đang thắng ở $${auction.currentBid}. Bỏ cuộc sẽ rút lại giá đã đặt, phiên đấu giá thất bại và KHÔNG AI nhận được ô đất. Nếu muốn thắng, chỉ cần chờ hết giờ.`
+      : `Bạn đang dẫn đầu ở $${auction.currentBid}. Bỏ cuộc sẽ RÚT LẠI giá bạn đã đặt — phiên vẫn tiếp tục, và quyền dẫn đầu chuyển sang mức giá cao nhất còn lại của người khác.`
+
   const groupColor = tile?.groupId ? GROUP_COLORS[tile.groupId] : undefined
   const headerColor = tile ? (CHANCE_FORTUNE_COLOR[tile.tileType] ?? groupColor) : undefined
 
@@ -98,6 +127,12 @@ export default function FlashAuction() {
   }
 
   function fold() {
+    // One click arms the warning, the second commits — but only when folding
+    // actually costs something (see foldCost). A plain fold stays one click.
+    if (foldCost && !confirmFold) {
+      setConfirmFold(true)
+      return
+    }
     setBusy(true)
     sendGameAction('FOLD_AUCTION')
   }
@@ -187,8 +222,14 @@ export default function FlashAuction() {
                 +${BID_INCREMENTS[i]} (${amount})
               </button>
             ))}
-            <button type="button" className={styles.foldButton} disabled={busy} onClick={fold}>
-              Bỏ cuộc (Fold)
+            {confirmFold && foldCost && <p className={styles.foldWarning}>⚠ {foldCost}</p>}
+            <button
+              type="button"
+              className={confirmFold && foldCost ? `${styles.foldButton} ${styles.foldButtonArmed}` : styles.foldButton}
+              disabled={busy}
+              onClick={fold}
+            >
+              {confirmFold && foldCost ? 'Vẫn bỏ cuộc — tôi hiểu' : 'Bỏ cuộc (Fold)'}
             </button>
           </div>
         ) : iAmInitiator ? (

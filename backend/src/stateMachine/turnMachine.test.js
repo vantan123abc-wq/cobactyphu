@@ -273,7 +273,9 @@ test('FORCE_AUCTION: charges the auction fee and starts a Flash Auction (V2)', (
   assert.equal(auction.highestBidderId, null);
   assert.equal(auction.initiatorId, 'gp-alice');
   assert.equal(auction.bankId, 'gp-bank'); // V2: bankId stored for commission settlement
-  assert.deepEqual(auction.activeBidders, ['gp-alice', 'gp-bob']); // initiator included
+  // V2 Broker rule: the host is EXCLUDED from their own auction — they take
+  // the 20% commission instead of bidding. Alice initiated, so only Bob bids.
+  assert.deepEqual(auction.activeBidders, ['gp-bob']);
   assert.equal(after.properties.find((p) => p.boardTileId === 't2').ownerId, null); // not transferred yet
 });
 
@@ -1363,6 +1365,52 @@ test('MAKE_EVENT_CHOICE: OPT_SAFE resolves to POST_ACTIONS and pays the guarante
   assert.equal(transactions[0].transactionType, 'event_card');
 });
 
+// --- The "nobody can afford this card" deadlock (fixed 2026-09-02) ---
+//
+// C11_CU_DANH_LIEU is eligibility-gated at currentBalance >= 50 on draw and
+// its SINGLE option costs $50. Trades / GAMBLE_RENT / USE_INVENTORY_CARD are
+// all deliberately phase-independent, so the drawer's cash can fall below $50
+// while the card is still pending. Before the fix that was a permanent room
+// freeze: MAKE_EVENT_CHOICE was the only legal action in the phase and every
+// call threw INSUFFICIENT_BALANCE, and the phase timeout synthesized that
+// same doomed choice, so handleTurnTimeout bailed with the timer already
+// cleared. The card now fizzles to a no-op instead.
+test('MAKE_EVENT_CHOICE: a card whose every option is unaffordable fizzles to POST_ACTIONS instead of deadlocking', () => {
+  const base = baseGameState();
+  const state = {
+    ...base,
+    phase: 'AWAITING_EVENT_CHOICE',
+    pendingEventCardId: 'C11_CU_DANH_LIEU',
+    players: base.players.map((p) => (p.id === 'gp-alice' ? { ...p, currentBalance: 40 } : p)), // below the $50 option
+  };
+  const { gameState, transactions } = transitionTurn(state, board, {
+    type: 'MAKE_EVENT_CHOICE',
+    payload: { optionId: 'OPT_GAMBLE', dieFaceRoll: 4 },
+  });
+
+  assert.equal(gameState.phase, 'POST_ACTIONS');
+  assert.equal(gameState.pendingEventCardId, null);
+  assert.equal(gameState.players.find((p) => p.id === 'gp-alice').currentBalance, 40); // untouched — a no-op, not a free win
+  assert.equal(transactions.length, 0);
+});
+
+test('MAKE_EVENT_CHOICE: an unaffordable option is still rejected while an affordable one exists', () => {
+  // The fizzle above must stay narrow. INVESTMENT_OPPORTUNITY has a free
+  // OPT_SAFE alongside a staked OPT_RISK, so picking the stake you cannot
+  // cover is real invalid input, not a card nobody can play.
+  const base = baseGameState();
+  const state = {
+    ...base,
+    phase: 'AWAITING_EVENT_CHOICE',
+    pendingEventCardId: 'INVESTMENT_OPPORTUNITY',
+    players: base.players.map((p) => (p.id === 'gp-alice' ? { ...p, currentBalance: 1 } : p)),
+  };
+  assert.throws(
+    () => transitionTurn(state, board, { type: 'MAKE_EVENT_CHOICE', payload: { optionId: 'OPT_RISK', probabilityRoll: 0.1 } }),
+    (err) => err.name === 'EventChoiceError' && err.reason === 'INSUFFICIENT_BALANCE'
+  );
+});
+
 test('MAKE_EVENT_CHOICE: OPT_RISK, probability succeeds — pays the premium after the stake', () => {
   const state = {
     ...baseGameState(),
@@ -1429,32 +1477,54 @@ test('END_TURN remains illegal during FLASH_AUCTION_ACTIVE, even though PLACE_BI
   assert.throws(() => transitionTurn(state, board, { type: 'END_TURN' }), InvalidTurnActionError);
 });
 
-// Alice opens an auction on Station A (price 200, fee 20) — the shared
-// starting point for the two-bidder PLACE_BID/FOLD_AUCTION tests below.
-function twoBidderAuctionState() {
+// Alice opens an auction on Station A (price 200, fee 20).
+//
+// These three helpers are named for how many players can actually BID, which
+// since the V2 Broker rule (2026-09-02) is one FEWER than the number of
+// players at the table: handleForceAuction excludes the initiator from
+// `eligibleBidders`, because the host earns the 20% broker commission and may
+// not bid on their own auction. Alice is always the initiator here, so she is
+// never in activeBidders — every helper below adds one more opponent than the
+// bidder count in its name would suggest at a glance.
+function soloBidderAuctionState() {
   let state = { ...baseGameState(), phase: 'ROLLING' };
   ({ gameState: state } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 1) }));
   ({ gameState: state } = transitionTurn(state, board, { type: 'FORCE_AUCTION' }));
-  return state; // phase FLASH_AUCTION_ACTIVE, activeBidders ['gp-alice', 'gp-bob'], alice balance 1480
+  return state; // FLASH_AUCTION_ACTIVE, activeBidders ['gp-bob'] (alice hosts), alice balance 1480
 }
 
-// Same setup, but with a third eligible bidder (Carol) present before the
-// FORCE_AUCTION, so activeBidders starts at 3 — needed to exercise "fold still
-// leaves more than one bidder" separately from "fold resolves the auction".
-function threeBidderAuctionState() {
-  const threePlayers = baseGameState();
-  threePlayers.players.push(
+// + Carol, so two players can bid — the smallest table where one bidder can
+// fold and the auction still has someone left to resolve to.
+function twoBidderAuctionState() {
+  const players = baseGameState();
+  players.players.push(
     createPlayerGameState({ id: 'gp-carol', gameId: 'g1', playerId: 'carol', turnOrder: 2, currentBalance: 1500 })
   );
-  let state = { ...threePlayers, phase: 'ROLLING' };
+  let state = { ...players, phase: 'ROLLING' };
   ({ gameState: state } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 1) }));
   ({ gameState: state } = transitionTurn(state, board, { type: 'FORCE_AUCTION' }));
-  return state; // phase FLASH_AUCTION_ACTIVE, activeBidders ['gp-alice', 'gp-bob', 'gp-carol']
+  return state; // FLASH_AUCTION_ACTIVE, activeBidders ['gp-bob', 'gp-carol']
+}
+
+// + Dave, so three players can bid — needed to exercise "a bidder leaves and
+// MORE THAN ONE still remains" (fold, and forfeit) separately from "the last
+// departure resolves the auction". Before the Broker rule the three-player
+// table covered this, because the host counted as a bidder; it no longer does.
+function threeBidderAuctionState() {
+  const players = baseGameState();
+  players.players.push(
+    createPlayerGameState({ id: 'gp-carol', gameId: 'g1', playerId: 'carol', turnOrder: 2, currentBalance: 1500 }),
+    createPlayerGameState({ id: 'gp-dave', gameId: 'g1', playerId: 'dave', turnOrder: 3, currentBalance: 1500 })
+  );
+  let state = { ...players, phase: 'ROLLING' };
+  ({ gameState: state } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 1) }));
+  ({ gameState: state } = transitionTurn(state, board, { type: 'FORCE_AUCTION' }));
+  return state; // FLASH_AUCTION_ACTIVE, activeBidders ['gp-bob', 'gp-carol', 'gp-dave']
 }
 
 
 test('PLACE_BID: a valid bid updates the auction, stays in FLASH_AUCTION_ACTIVE, moves no money yet', () => {
-  const state = twoBidderAuctionState();
+  const state = soloBidderAuctionState();
   const { gameState, transactions } = transitionTurn(state, board, {
     type: 'PLACE_BID',
     payload: { playerId: 'gp-bob', amount: 250 },
@@ -1469,7 +1539,7 @@ test('PLACE_BID: a valid bid updates the auction, stays in FLASH_AUCTION_ACTIVE,
 });
 
 test('PLACE_BID: a bid at or below the current bid is rejected', () => {
-  const state = twoBidderAuctionState(); // currentBid starts at 200 (basePrice)
+  const state = soloBidderAuctionState(); // currentBid starts at 200 (basePrice)
   assert.throws(
     () => transitionTurn(state, board, { type: 'PLACE_BID', payload: { playerId: 'gp-bob', amount: 200 } }),
     InvalidBidError
@@ -1477,7 +1547,7 @@ test('PLACE_BID: a bid at or below the current bid is rejected', () => {
 });
 
 test('FOLD_AUCTION: folding down to more than one remaining bidder just continues the auction', () => {
-  let state = threeBidderAuctionState();
+  let state = threeBidderAuctionState(); // bob/carol/dave bid; alice hosts
   ({ gameState: state } = transitionTurn(state, board, {
     type: 'PLACE_BID',
     payload: { playerId: 'gp-bob', amount: 250 },
@@ -1488,21 +1558,20 @@ test('FOLD_AUCTION: folding down to more than one remaining bidder just continue
   });
 
   assert.equal(afterFold.phase, 'FLASH_AUCTION_ACTIVE'); // 2 active bidders remain — not resolved yet
-  assert.deepEqual(afterFold.pendingAuction.activeBidders, ['gp-alice', 'gp-bob']);
+  assert.deepEqual(afterFold.pendingAuction.activeBidders, ['gp-bob', 'gp-dave']);
   assert.equal(afterFold.pendingAuction.highestBidderId, 'gp-bob'); // Bob's bid still stands
   assert.equal(transactions.length, 0);
 });
 
 test('FOLD_AUCTION: folding down to the last active bidder resolves the auction — winner pays and receives the property', () => {
-  let state = threeBidderAuctionState();
+  let state = twoBidderAuctionState(); // bob/carol bid; alice hosts and cannot fold what she isn't in
   ({ gameState: state } = transitionTurn(state, board, {
     type: 'PLACE_BID',
     payload: { playerId: 'gp-bob', amount: 250 },
   }));
-  ({ gameState: state } = transitionTurn(state, board, { type: 'FOLD_AUCTION', payload: { playerId: 'gp-carol' } })); // 2 left
   const { gameState: after, transactions } = transitionTurn(state, board, {
     type: 'FOLD_AUCTION',
-    payload: { playerId: 'gp-alice' }, // 1 left (Bob) -> resolves
+    payload: { playerId: 'gp-carol' }, // 1 left (Bob) -> resolves
   });
 
   assert.equal(after.phase, 'POST_ACTIONS');
@@ -1518,10 +1587,10 @@ test('FOLD_AUCTION: folding down to the last active bidder resolves the auction 
 });
 
 test('FOLD_AUCTION: the last bidder folding without anyone ever bidding resolves as FAILED, no transfer', () => {
-  const state = twoBidderAuctionState();
+  const state = soloBidderAuctionState();
   const { gameState: after, transactions } = transitionTurn(state, board, {
     type: 'FOLD_AUCTION',
-    payload: { playerId: 'gp-bob' }, // 1 left (Alice) -> resolves; nobody ever bid
+    payload: { playerId: 'gp-bob' }, // the only bidder folds -> resolves; nobody ever bid
   });
 
   assert.equal(after.phase, 'POST_ACTIONS');
@@ -1531,13 +1600,13 @@ test('FOLD_AUCTION: the last bidder folding without anyone ever bidding resolves
 });
 
 test('AUCTION_TIMEOUT forcibly resolves the auction even with multiple active bidders remaining — winner pays, property transfers, Near-Miss rewarded', () => {
-  let state = threeBidderAuctionState();
+  let state = twoBidderAuctionState();
   ({ gameState: state } = transitionTurn(state, board, { type: 'PLACE_BID', payload: { playerId: 'gp-carol', amount: 220 } })); // carol bid #1
   ({ gameState: state } = transitionTurn(state, board, { type: 'PLACE_BID', payload: { playerId: 'gp-bob', amount: 380 } }));
   ({ gameState: state } = transitionTurn(state, board, { type: 'PLACE_BID', payload: { playerId: 'gp-carol', amount: 390 } })); // carol bid #2, highest 390
   ({ gameState: state } = transitionTurn(state, board, { type: 'PLACE_BID', payload: { playerId: 'gp-bob', amount: 430 } })); // bob's final, winning bid
 
-  assert.deepEqual(state.pendingAuction.activeBidders, ['gp-alice', 'gp-bob', 'gp-carol']); // all 3 still active — nobody folded
+  assert.deepEqual(state.pendingAuction.activeBidders, ['gp-bob', 'gp-carol']); // both bidders still active — nobody folded (alice hosts)
   // No payload at all — AUCTION_TIMEOUT is system-generated, needs no playerId.
   const { gameState: after, transactions } = transitionTurn(state, board, { type: 'AUCTION_TIMEOUT' });
 
@@ -1556,7 +1625,7 @@ test('AUCTION_TIMEOUT forcibly resolves the auction even with multiple active bi
 });
 
 test('AUCTION_TIMEOUT on an auction nobody ever bid on resolves as FAILED, no transfer', () => {
-  const state = threeBidderAuctionState(); // no PLACE_BID calls at all
+  const state = twoBidderAuctionState(); // no PLACE_BID calls at all
   const { gameState: after, transactions } = transitionTurn(state, board, { type: 'AUCTION_TIMEOUT' });
 
   assert.equal(after.phase, 'POST_ACTIONS');
@@ -1566,7 +1635,7 @@ test('AUCTION_TIMEOUT on an auction nobody ever bid on resolves as FAILED, no tr
 });
 
 test('FOLD_AUCTION-triggered resolution also applies Near-Miss rewards through applyIntents', () => {
-  let state = threeBidderAuctionState();
+  let state = twoBidderAuctionState();
   // Each bid must strictly exceed the current one, so Carol and Bob have to
   // alternate raising for Bob to end up on top with Carol's highest still
   // close behind (not simply "Carol bids twice then Bob bids once above both").
@@ -1574,10 +1643,11 @@ test('FOLD_AUCTION-triggered resolution also applies Near-Miss rewards through a
   ({ gameState: state } = transitionTurn(state, board, { type: 'PLACE_BID', payload: { playerId: 'gp-bob', amount: 380 } }));
   ({ gameState: state } = transitionTurn(state, board, { type: 'PLACE_BID', payload: { playerId: 'gp-carol', amount: 390 } })); // carol bid #2, highest 390
   ({ gameState: state } = transitionTurn(state, board, { type: 'PLACE_BID', payload: { playerId: 'gp-bob', amount: 430 } })); // bob's final, winning bid
-  ({ gameState: state } = transitionTurn(state, board, { type: 'FOLD_AUCTION', payload: { playerId: 'gp-carol' } })); // 2 left, continues
   const { gameState: after, transactions } = transitionTurn(state, board, {
     type: 'FOLD_AUCTION',
-    payload: { playerId: 'gp-alice' }, // 1 left (Bob) -> resolves, Bob wins at 430
+    payload: { playerId: 'gp-carol' }, // 1 left (Bob) -> resolves, Bob wins at 430.
+    // Carol still collects Near-Miss despite folding: the reward is computed
+    // from the `bids` log, not from who is still standing at settlement.
   });
 
   // threshold = 430 * 0.9 = 387; carol's highest (390) clears it, 2 bids of her own.
@@ -2936,12 +3006,12 @@ test('FORFEIT_MATCH: an unclaimed pendingRentGamble is simply dropped when its o
 });
 
 test('FORFEIT_MATCH: removes the forfeiter from an active auction without settling it early, when other bidders remain', () => {
-  const state = threeBidderAuctionState(); // FLASH_AUCTION_ACTIVE, activeBidders alice/bob/carol; alice is current
+  const state = threeBidderAuctionState(); // FLASH_AUCTION_ACTIVE, activeBidders bob/carol/dave; alice hosts and is current
   const { gameState } = transitionTurn(state, board, { type: 'FORFEIT_MATCH', payload: { playerId: 'gp-carol' } });
 
   assert.equal(gameState.players.find((p) => p.id === 'gp-carol').bankrupt, true);
   assert.equal(gameState.phase, 'FLASH_AUCTION_ACTIVE'); // still 2 active bidders — not force-settled
-  assert.deepEqual(gameState.pendingAuction.activeBidders, ['gp-alice', 'gp-bob']);
+  assert.deepEqual(gameState.pendingAuction.activeBidders, ['gp-bob', 'gp-dave']);
   assert.equal(gameState.currentTurnIndex, 0); // Carol wasn't the current player — Alice's turn is untouched
 });
 
@@ -3119,7 +3189,15 @@ test('MAKE_EVENT_CHOICE (C11): OPT_GAMBLE always deducts the $50 stake, then res
   }
 });
 
-test('MAKE_EVENT_CHOICE (C11): OPT_GAMBLE is rejected when the player cannot afford the $50 stake', () => {
+// REVISED 2026-09-02. This used to assert that OPT_GAMBLE *throws* when the
+// player cannot afford the $50 stake — which was true, and was precisely the
+// deadlock: OPT_GAMBLE is C11's ONLY option, MAKE_EVENT_CHOICE is
+// AWAITING_EVENT_CHOICE's ONLY action, and the phase timeout synthesized the
+// same rejected choice, so the room froze with its timer already cleared.
+// A card nobody can afford now fizzles to a no-op instead. See
+// handleEventChoice's DEADLOCK ESCAPE comment and the general-case pair of
+// tests next to the other MAKE_EVENT_CHOICE cases above.
+test('MAKE_EVENT_CHOICE (C11): its single unaffordable option fizzles to POST_ACTIONS rather than deadlocking the phase', () => {
   const state = {
     ...baseGameState({
       players: baseGameState().players.map((p) => (p.id === 'gp-alice' ? { ...p, currentBalance: 10 } : p)),
@@ -3127,10 +3205,15 @@ test('MAKE_EVENT_CHOICE (C11): OPT_GAMBLE is rejected when the player cannot aff
     phase: 'AWAITING_EVENT_CHOICE',
     pendingEventCardId: 'C11_CU_DANH_LIEU',
   };
-  assert.throws(
-    () => transitionTurn(state, board, { type: 'MAKE_EVENT_CHOICE', payload: { optionId: 'OPT_GAMBLE', dieFaceRoll: 4 } }),
-    EventChoiceError
-  );
+  const { gameState, transactions } = transitionTurn(state, board, {
+    type: 'MAKE_EVENT_CHOICE',
+    payload: { optionId: 'OPT_GAMBLE', dieFaceRoll: 4 },
+  });
+
+  assert.equal(gameState.phase, 'POST_ACTIONS');
+  assert.equal(gameState.pendingEventCardId, null);
+  assert.equal(gameState.players.find((p) => p.id === 'gp-alice').currentBalance, 10); // no stake taken
+  assert.equal(transactions.length, 0);
 });
 
 test('MAKE_EVENT_CHOICE: a DIE_FACE_REWARD option without a valid dieFaceRoll throws', () => {
@@ -3351,9 +3434,10 @@ test('bankruptcy leaves an eliminated player holding no cards of any kind', () =
 // Each assertion below was verified to fail against the unfixed code.
 
 test('FORFEIT_MATCH while an auction is live settles that auction instead of crashing', () => {
-  // Alice and Bob are the two active bidders. Bob quits, leaving one bidder,
-  // which drives applyBankruptcy's own "fold, then settle" branch.
-  let state = twoBidderAuctionState();
+  // Alice hosts (and so cannot bid), leaving Bob as the sole active bidder.
+  // Bob quits, emptying the bidder list, which drives applyBankruptcy's own
+  // "fold, then settle" branch.
+  let state = soloBidderAuctionState();
   assert.equal(state.phase, 'FLASH_AUCTION_ACTIVE');
   assert.ok(state.pendingAuction.activeBidders.includes('gp-bob'));
 
@@ -3372,7 +3456,7 @@ test('a match ending while an auction is live settles that auction instead of cr
   // next" — that branch threw a TypeError every time it was actually taken.
   // Driven through a real forfeit that leaves exactly one solvent player, so
   // finishAfterBankruptcy -> settleGameEnd runs for real.
-  let state = twoBidderAuctionState();
+  let state = soloBidderAuctionState();
   assert.equal(state.phase, 'FLASH_AUCTION_ACTIVE');
   assert.ok(state.pendingAuction);
 
