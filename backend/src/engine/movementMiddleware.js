@@ -1,5 +1,6 @@
 import { movePlayer as classicMovePlayer } from './movement.js';
 import { passThroughEffect } from './synergyEngine.js';
+import { activeTrapsOf, TOLL_BOOTH_AMOUNT } from './trapEngine.js';
 
 /**
  * Middleware để di chuyển người chơi.
@@ -25,7 +26,7 @@ import { passThroughEffect } from './synergyEngine.js';
  * @param {object} [options]
  * @param {import('../domain/tile.js').Tile[]} [options.boardTiles] - required for pass-through; omit for movement-only
  * @param {boolean} [options.ignorePassThrough] - JUMP cards (movementDictionary.js) cross immune
- * @returns {{newPosition: number, passedGo: boolean, stoppedByTrap: boolean, stepsLost: number, tolls: object[], cardEffects: object[]}}
+ * @returns {{newPosition: number, passedGo: boolean, stoppedByTrap: boolean, stepsLost: number, tolls: object[], cardEffects: object[], consumedTrapTileIndexes: number[]}}
  */
 export function resolveMovement(gameState, playerId, steps, direction = 1, boardTileCount, options = {}) {
   const player = gameState.players.find((p) => p.id === playerId);
@@ -33,7 +34,7 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
 
   if (gameState.ruleset === 'CLASSIC') {
     const classic = classicMovePlayer(player.currentPosition, steps, boardTileCount);
-    return { ...classic, stoppedByTrap: false, stepsLost: 0, tolls: [], cardEffects: [] };
+    return { ...classic, stoppedByTrap: false, stepsLost: 0, tolls: [], cardEffects: [], consumedTrapTileIndexes: [] };
   }
 
   const { boardTiles = null, ignorePassThrough = false } = options;
@@ -45,6 +46,7 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
   let stepsLost = 0;
   const tolls = [];
   const cardEffects = [];
+  const consumedTrapTileIndexes = [];
 
   // A guard, not a rule: CONTROL removes steps, and a long enough chain of
   // owned CONTROL tiles could in principle keep removing them. The simulation
@@ -67,11 +69,30 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
     // also charge it a pass-through, or every landing would be billed twice.
     if (remaining === 0) break;
 
-    const traps = gameState.activeTraps || [];
-    const trap = traps.find((t) => t.tileIndex === currentPos);
-    if (trap && trap.type === 'ROADBLOCK') {
+    // Player-placed traps (trapEngine.js) — a different lever from the
+    // archetype pass-through below: placeable on ANY tile regardless of
+    // ownership, and NOT exempt for their own owner (see trapEngine.js's own
+    // file header for why). activeTrapsOf() already filters to not-yet-
+    // expired entries, so an expired trap here is silently inert rather than
+    // needing a separate liveness check at every read site.
+    const trap = activeTrapsOf(gameState).find((t) => t.tileIndex === currentPos);
+    if (trap?.type === 'ROADBLOCK') {
       stoppedByTrap = true;
+      consumedTrapTileIndexes.push(trap.tileIndex); // one-shot — turnMachine.js removes it after this move settles
       break;
+    }
+    if (trap?.type === 'TOLL_BOOTH') {
+      // Same settlement path EXECUTION's own toll uses (turnMachine.js's
+      // tolls loop) — a trap-sourced toll is economically identical, just
+      // sourced from a placed hazard instead of archetype ownership.
+      // `tileId` here is the raw board POSITION, not a real Tile row id — a
+      // trap has no Tile of its own — but nothing downstream ever actually
+      // reads this field (checked before adding it); it exists purely so a
+      // future transaction-log UI has something to point at.
+      tolls.push({ ownerId: trap.ownerId, amount: TOLL_BOOTH_AMOUNT, tileId: currentPos });
+      // A standing hazard, not one-shot: does NOT go into
+      // consumedTrapTileIndexes, so it keeps charging every crossing until
+      // its own expiresAtRound lapses.
     }
 
     // JUMP cards pay for their immunity in tempo (2-3 steps against a 5-9
@@ -119,5 +140,5 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
     }
   }
 
-  return { newPosition: currentPos, passedGo, stoppedByTrap, stepsLost, tolls, cardEffects };
+  return { newPosition: currentPos, passedGo, stoppedByTrap, stepsLost, tolls, cardEffects, consumedTrapTileIndexes };
 }

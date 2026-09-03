@@ -186,6 +186,7 @@ import { MIN_UPGRADE_LEVEL, MAX_UPGRADE_LEVEL } from '../domain/property.js';
 import { computeBankruptcySettlement } from '../engine/bankruptcyApplication.js';
 import { checkElimination, shouldEnterFinalPhase, shouldEndFinalPhase, rankPlayers } from './gameEndMachine.js';
 import { advanceDraftState } from '../engine/draftPhase.js';
+import { validateTrapPlacement, createTrap, isTrapActive } from '../engine/trapEngine.js';
 
 const PASS_GO_SALARY = 200; // GAME_DESIGN_SPEC.md §0, PROPOSED classic value
 
@@ -251,6 +252,15 @@ export class InvalidDraftActionError extends Error {
   }
 }
 
+// PLACE_TRAP's own business-rule rejections (trapEngine.js, ASYMMETRIC only).
+export class InvalidTrapActionError extends Error {
+  constructor(reason, message) {
+    super(message);
+    this.name = 'InvalidTrapActionError';
+    this.reason = reason;
+  }
+}
+
 // USE_INVENTORY_CARD's own business-rule rejections (Card Inventory system).
 // A distinct class for the same reason InvalidJailActionError below is one:
 // these were originally thrown as `InvalidTurnActionError('ANY', …)`, which
@@ -307,7 +317,13 @@ const VALID_ACTIONS_BY_PHASE = Object.freeze({
   TURN_START: ['START_TURN'],
   JAIL_DECISION: ['PAY_JAIL_FINE', 'USE_JAIL_CARD', 'ATTEMPT_JAIL_ROLL'],
   ROLLING: ['ROLL_DICE'],
-  PLAYING_CARD: ['PLAY_MOVEMENT_CARD'],
+  // PLACE_TRAP (trapEngine.js) shares this phase rather than getting its own
+  // — placing a trap spends a movement card INSTEAD OF moving, so it is a
+  // real alternative to PLAY_MOVEMENT_CARD, not a separate decision point.
+  // Reusing PLAYING_CARD's existing 30s timer/hand-size-topup machinery
+  // verbatim is exactly the "least state-machine congestion" choice: no new
+  // phase, no new timer entry, no new deck cards.
+  PLAYING_CARD: ['PLAY_MOVEMENT_CARD', 'PLACE_TRAP'],
   AWAITING_PURCHASE: ['BUY_PROPERTY', 'SKIP_PURCHASE', 'FORCE_AUCTION', 'DECLINE_PURCHASE'], // DECLINE_PURCHASE kept as backward-compat alias for SKIP_PURCHASE
   AWAITING_UPGRADE: ['BUILD_HOUSE', 'DECLINE_UPGRADE'],
   FLASH_AUCTION_ACTIVE: ['PLACE_BID', 'FOLD_AUCTION', 'AUCTION_TIMEOUT'],
@@ -1807,6 +1823,46 @@ function handleDraftAction(gameState, boardTiles, action, now) {
   };
 }
 
+/**
+ * PLACE_TRAP (trapEngine.js, ASYMMETRIC_MODE_SPEC.md's original ROADBLOCK/
+ * TOLL_BOOTH design) — spends ANY card from hand (its own steps/cost become
+ * irrelevant; you are not moving) to plant a trap on a tile of the player's
+ * choosing anywhere on the board, then ends the turn at POST_ACTIONS exactly
+ * as a real move would, just without having moved.
+ *
+ * Deliberately mirrors handlePlayMovementCard's own card-discard shape (same
+ * `!hand.includes(cardId)` guard, same splice-and-replace) rather than
+ * sharing code with it — the two diverge immediately after (one moves and
+ * lands, this one doesn't), and forcing a shared helper for two lines of
+ * hand bookkeeping would cost more clarity than it saves.
+ */
+function handlePlaceTrap(gameState, boardTiles, action) {
+  const { cardId, trapType, targetPosition } = action.payload ?? {};
+  const player = getCurrentPlayer(gameState);
+
+  if (!player.movementHand || !player.movementHand.includes(cardId)) {
+    throw new Error('Bạn không có thẻ này trên tay!');
+  }
+
+  const reason = validateTrapPlacement(gameState, player.id, targetPosition, trapType, boardTiles.length);
+  if (reason) {
+    throw new InvalidTrapActionError(reason, `handlePlaceTrap: cannot place ${trapType} at position ${targetPosition} (${reason})`);
+  }
+
+  const newHand = [...player.movementHand];
+  newHand.splice(newHand.indexOf(cardId), 1);
+  const stateAfterCost = replacePlayer(gameState, { ...player, movementHand: newHand });
+
+  const trap = createTrap(player.id, targetPosition, trapType, stateAfterCost.roundNumber);
+  const stateAfterPlacement = {
+    ...stateAfterCost,
+    activeTraps: [...(stateAfterCost.activeTraps ?? []), trap],
+    phase: 'POST_ACTIONS',
+  };
+
+  return { gameState: stateAfterPlacement, transactions: [] };
+}
+
 function handlePlayMovementCard(gameState, boardTiles, action, now) {
   const { cardId } = action.payload;
   const player = getCurrentPlayer(gameState);
@@ -1856,7 +1912,7 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
     );
   }
 
-  const { newPosition, passedGo, stoppedByTrap, tolls, cardEffects } = resolveMovement(
+  const { newPosition, passedGo, stoppedByTrap, tolls, cardEffects, consumedTrapTileIndexes } = resolveMovement(
     stateAfterCost,
     player.id,
     steps,
@@ -1864,6 +1920,13 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
     boardTileCount,
     { boardTiles, ignorePassThrough: cardDef.ignorePassThrough === true }
   );
+  // stoppedByTrap deliberately has no consumer below — resolveLanding at the
+  // truncated position behaves identically whether the player chose to end
+  // their move there or a ROADBLOCK forced it (a real property still
+  // resolves rent/purchase the same either way). Kept in the return shape as
+  // real, structurally meaningful information (a client-facing "you were
+  // stopped by a trap" signal is a UI concern this branch doesn't build),
+  // not as an oversight.
 
   // Pass-through tolls settle BEFORE the move lands, in crossing order — the
   // player really did drive past those tiles on the way here. Settled through
@@ -1896,6 +1959,18 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
   // are: they mutate players, and every mutation belongs on this side.
   for (const effect of cardEffects) {
     stateAfterCost = applyCardEffect(stateAfterCost, effect, player.id);
+  }
+
+  // A ROADBLOCK is a one-shot ambush (trapEngine.js's own file header) —
+  // consumed here, the one place resolveMovement's pure
+  // consumedTrapTileIndexes list actually gets applied to state. TOLL_BOOTH
+  // never appears in this list (it persists, settled via `tolls` above
+  // instead), so this only ever removes ROADBLOCK entries.
+  if (consumedTrapTileIndexes.length > 0) {
+    stateAfterCost = {
+      ...stateAfterCost,
+      activeTraps: (stateAfterCost.activeTraps ?? []).filter((t) => !consumedTrapTileIndexes.includes(t.tileIndex)),
+    };
   }
 
   // Giống như khúc dưới của moveAndResolve
@@ -2144,6 +2219,15 @@ function advanceTurn(gameState, boardTiles, now) {
     // — those are one-shot-per-use, not round-scoped, by design (their own
     // doc comments).
     ...(wrapped ? { rentModifierPercent: 0, buildCostModifierAmount: 0 } : {}),
+    // trapEngine.js's activeTraps: lazily expired (isTrapActive checks
+    // expiresAtRound against roundNumber on every read), but ACTUALLY
+    // pruned only here, on the same real round-boundary checkpoint the
+    // K01/K02/K07/K08 reset above already uses — every movement step reads
+    // this array, so letting expired entries pile up for 45 rounds would be
+    // real, avoidable waste even though correctness never depended on it.
+    ...(wrapped && state.activeTraps?.length
+      ? { activeTraps: state.activeTraps.filter((t) => isTrapActive(t, roundNumber)) }
+      : {}),
   };
 
   if (wrapped) {
@@ -3578,6 +3662,9 @@ export function transitionTurn(gameState, boardTiles, action, now) {
       return moveAndResolve(gameState, boardTiles, getCurrentPlayer(gameState).id, action.payload, now);
 
     case 'PLAYING_CARD':
+      if (action.type === 'PLACE_TRAP') {
+        return handlePlaceTrap(gameState, boardTiles, action);
+      }
       return handlePlayMovementCard(gameState, boardTiles, action, now);
 
     case 'AWAITING_PURCHASE':

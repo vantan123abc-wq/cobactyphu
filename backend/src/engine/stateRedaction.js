@@ -41,8 +41,28 @@ export function maskGameState(gameState, viewerId) {
   return {
     ...gameState,
     players: gameState.players.map((player) => maskPlayer(player, viewerId, gameState.roundNumber)),
+    activeTraps: (gameState.activeTraps ?? []).map((trap) => maskTrap(trap, viewerId)),
   };
 }
+
+/**
+ * A trap (trapEngine.js) is a hidden hazard — the whole point of "bẫy" is
+ * surprise, so its owner sees the real entry (position, type, expiry) and
+ * everyone else gets an anonymous stub: same array length (so a count is
+ * still visible — "N unknown traps are live somewhere," the exact same
+ * "preserve length, redact content" convention maskPlayer's HIDDEN_CARD
+ * sentinel already uses for hands), but tileIndex/type/ownerId/expiresAtRound
+ * all stripped. A victim only learns what they hit at the moment they
+ * actually trigger it — that reveal happens through the normal transaction/
+ * movement-result flow, not through this redacted view.
+ */
+function maskTrap(trap, viewerId) {
+  if (trap.ownerId === viewerId) return trap;
+  return { tileIndex: null, type: HIDDEN_TRAP, ownerId: null, expiresAtRound: null };
+}
+
+/** Sentinel for a trap entry redacted down to "something is here, somewhere." */
+export const HIDDEN_TRAP = 'HIDDEN';
 
 /**
  * @param {import('../domain/gameState.js').PlayerGameState} player

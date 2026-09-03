@@ -8,6 +8,7 @@ import {
   InvalidInventoryActionError,
   InvalidForfeitError,
   InvalidDraftActionError,
+  InvalidTrapActionError,
 } from './turnMachine.js';
 import { createTile } from '../domain/tile.js';
 import { createProperty } from '../domain/property.js';
@@ -3793,4 +3794,118 @@ test('round 2 completing clears draftState and hands off to a real TURN_START at
 
 test('DRAFTING_ACTIVE rejects any action other than DRAFT_PICK/DRAFT_PASS', () => {
   assert.throws(() => transitionTurn(draftGameState(), board, { type: 'ROLL_DICE' }), InvalidTurnActionError);
+});
+
+// ── Trap system (trapEngine.js, ROADBLOCK/TOLL_BOOTH) ───────────────────────
+// Shares PLAYING_CARD with PLAY_MOVEMENT_CARD by design (turnMachine.js's own
+// VALID_ACTIONS_BY_PHASE comment) — placing a trap spends a movement card
+// INSTEAD OF moving, so these fixtures start from the same phase real
+// movement-card tests do, just with PLACE_TRAP instead.
+function trapGameState(overrides = {}) {
+  return baseGameState({
+    ruleset: 'ASYMMETRIC',
+    phase: 'PLAYING_CARD',
+    ...overrides,
+  });
+}
+
+test('PLACE_TRAP: spends the card, creates the trap, ends the turn at POST_ACTIONS without moving', () => {
+  const state = trapGameState();
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_5'] }; // alice, turnOrder 0
+  const { gameState, transactions } = transitionTurn(state, board, {
+    type: 'PLACE_TRAP',
+    payload: { cardId: 'MOVE_5', trapType: 'ROADBLOCK', targetPosition: 20 },
+  });
+
+  const alice = gameState.players.find((p) => p.id === 'gp-alice');
+  assert.deepEqual(alice.movementHand, [], 'the card is spent');
+  assert.equal(alice.currentPosition, 0, 'placing a trap is not a move');
+  assert.equal(gameState.phase, 'POST_ACTIONS');
+  assert.deepEqual(transactions, [], 'placing a trap costs a card, not money');
+
+  assert.deepEqual(gameState.activeTraps, [
+    { tileIndex: 20, type: 'ROADBLOCK', ownerId: 'gp-alice', expiresAtRound: gameState.roundNumber + 5 },
+  ]);
+});
+
+test('PLACE_TRAP rejects a card the player does not hold, same guard PLAY_MOVEMENT_CARD uses', () => {
+  const state = trapGameState();
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_5'] };
+  assert.throws(
+    () => transitionTurn(state, board, { type: 'PLACE_TRAP', payload: { cardId: 'JUMP_2', trapType: 'ROADBLOCK', targetPosition: 20 } }),
+    /Bạn không có thẻ này trên tay/
+  );
+});
+
+test('PLACE_TRAP rejects an out-of-range position', () => {
+  const state = trapGameState();
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_5'] };
+  assert.throws(
+    () => transitionTurn(state, board, { type: 'PLACE_TRAP', payload: { cardId: 'MOVE_5', trapType: 'ROADBLOCK', targetPosition: 99 } }),
+    (err) => err instanceof InvalidTrapActionError && err.reason === 'INVALID_POSITION'
+  );
+});
+
+test('PLACE_TRAP rejects a tile that already has an active trap on it', () => {
+  const state = trapGameState({ activeTraps: [{ tileIndex: 20, type: 'TOLL_BOOTH', ownerId: 'gp-bob', expiresAtRound: 10 }] });
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_5'] };
+  assert.throws(
+    () => transitionTurn(state, board, { type: 'PLACE_TRAP', payload: { cardId: 'MOVE_5', trapType: 'ROADBLOCK', targetPosition: 20 } }),
+    (err) => err instanceof InvalidTrapActionError && err.reason === 'TILE_OCCUPIED'
+  );
+});
+
+test('PLACE_TRAP rejects a placer\'s own 3rd simultaneous trap (MAX_TRAPS_PER_PLAYER = 2)', () => {
+  const state = trapGameState({
+    activeTraps: [
+      { tileIndex: 15, type: 'ROADBLOCK', ownerId: 'gp-alice', expiresAtRound: 10 },
+      { tileIndex: 16, type: 'ROADBLOCK', ownerId: 'gp-alice', expiresAtRound: 10 },
+    ],
+  });
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_5'] };
+  assert.throws(
+    () => transitionTurn(state, board, { type: 'PLACE_TRAP', payload: { cardId: 'MOVE_5', trapType: 'ROADBLOCK', targetPosition: 20 } }),
+    (err) => err instanceof InvalidTrapActionError && err.reason === 'TRAP_LIMIT_REACHED'
+  );
+});
+
+test('a real move into a ROADBLOCK stops the mover AND removes the trap from gameState — one-shot ambush, not permanent', () => {
+  const state = trapGameState({ activeTraps: [{ tileIndex: 3, type: 'ROADBLOCK', ownerId: 'gp-bob', expiresAtRound: 10 }] });
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_6'], currentPosition: 0 }; // alice tries to walk 6, from 0
+  const { gameState } = transitionTurn(state, board, { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: 'MOVE_6' } });
+
+  const alice = gameState.players.find((p) => p.id === 'gp-alice');
+  assert.equal(alice.currentPosition, 3, 'stopped dead at the roadblock, 3 short of the full 6');
+  assert.deepEqual(gameState.activeTraps, [], 'the ROADBLOCK is consumed the instant it fires');
+});
+
+test('a real move across a TOLL_BOOTH charges the crosser and pays the trap owner, and the trap survives to charge again', () => {
+  const state = trapGameState({ activeTraps: [{ tileIndex: 3, type: 'TOLL_BOOTH', ownerId: 'gp-bob', expiresAtRound: 10 }] });
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_6'], currentPosition: 0, currentBalance: 1500 };
+  const { gameState, transactions } = transitionTurn(state, board, { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: 'MOVE_6' } });
+
+  const alice = gameState.players.find((p) => p.id === 'gp-alice');
+  const bob = gameState.players.find((p) => p.id === 'gp-bob');
+  assert.equal(alice.currentPosition, 6, 'a toll never stops the mover');
+  assert.equal(alice.currentBalance, 1500 - 100);
+  assert.equal(bob.currentBalance, 1500 + 100, 'the toll is paid to the trap OWNER, not the Bank');
+  assert.ok(transactions.some((t) => t.transactionType === 'pass_through_toll'));
+  assert.deepEqual(gameState.activeTraps, [{ tileIndex: 3, type: 'TOLL_BOOTH', ownerId: 'gp-bob', expiresAtRound: 10 }], 'still standing');
+});
+
+test('END_TURN, on the real round-wrap boundary, prunes expired traps but keeps live ones', () => {
+  const state = baseGameState({
+    ruleset: 'ASYMMETRIC',
+    phase: 'POST_ACTIONS',
+    currentTurnIndex: 1, // Bob's turn — ending it wraps back to Alice (turnOrder 0), a real round boundary
+    roundNumber: 4,
+    activeTraps: [
+      { tileIndex: 1, type: 'ROADBLOCK', ownerId: 'gp-alice', expiresAtRound: 4 }, // expires exactly this round
+      { tileIndex: 2, type: 'ROADBLOCK', ownerId: 'gp-bob', expiresAtRound: 9 }, // still well within its window
+    ],
+  });
+  const { gameState } = transitionTurn(state, board, { type: 'END_TURN' });
+
+  assert.equal(gameState.roundNumber, 5, 'the round really did wrap');
+  assert.deepEqual(gameState.activeTraps.map((t) => t.tileIndex), [2], 'the round-4 trap is pruned, the round-9 one survives');
 });

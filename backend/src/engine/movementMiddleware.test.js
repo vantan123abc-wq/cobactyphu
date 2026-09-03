@@ -19,8 +19,9 @@ const BOARD = Array.from({ length: 36 }, (_, i) => {
 const own = (position, ownerId, extra = {}) =>
   createProperty({ id: `p${position}`, gameId: 'g', boardTileId: `t${position}`, ownerId, ...extra });
 
-const asym = (pos, properties, traps = []) => ({
+const asym = (pos, properties, traps = [], roundNumber = 0) => ({
   ruleset: 'ASYMMETRIC',
+  roundNumber,
   players: [{ id: 'p1', currentPosition: pos }, { id: 'p2', currentPosition: 0 }],
   properties,
   activeTraps: traps,
@@ -35,11 +36,33 @@ test('CLASSIC is untouched — no pass-through, no step loss, same shape as befo
   assert.deepStrictEqual(r.tolls, []);
 });
 
-test('ASYMMETRIC still stops dead at a ROADBLOCK', () => {
-  const state = asym(0, [], [{ tileIndex: 3, type: 'ROADBLOCK', ownerId: 'p2' }]);
+test('ASYMMETRIC still stops dead at a ROADBLOCK, and it is consumed (returned for turnMachine.js to prune)', () => {
+  const state = asym(0, [], [{ tileIndex: 3, type: 'ROADBLOCK', ownerId: 'p2', expiresAtRound: 5 }]);
   const r = resolveMovement(state, 'p1', 5, 1, 36, { boardTiles: BOARD });
   assert.strictEqual(r.newPosition, 3);
   assert.strictEqual(r.stoppedByTrap, true);
+  assert.deepStrictEqual(r.consumedTrapTileIndexes, [3]);
+});
+
+test('an EXPIRED ROADBLOCK is silently inert — the walk continues straight through it', () => {
+  const state = asym(0, [], [{ tileIndex: 3, type: 'ROADBLOCK', ownerId: 'p2', expiresAtRound: 0 }], 1);
+  const r = resolveMovement(state, 'p1', 5, 1, 36, { boardTiles: BOARD });
+  assert.strictEqual(r.newPosition, 5);
+  assert.strictEqual(r.stoppedByTrap, false);
+});
+
+test('a TOLL_BOOTH charges the crosser and pays the trap owner, and persists (not in consumedTrapTileIndexes)', () => {
+  const state = asym(0, [], [{ tileIndex: 3, type: 'TOLL_BOOTH', ownerId: 'p2', expiresAtRound: 5 }]);
+  const r = resolveMovement(state, 'p1', 5, 1, 36, { boardTiles: BOARD });
+  assert.strictEqual(r.newPosition, 5, 'a toll does not stop the mover, unlike a ROADBLOCK');
+  assert.deepStrictEqual(r.tolls, [{ ownerId: 'p2', amount: 100, tileId: 3 }]);
+  assert.deepStrictEqual(r.consumedTrapTileIndexes, [], 'a TOLL_BOOTH is a standing hazard, never consumed on trigger');
+});
+
+test('a trap affects its OWN owner too — no "safe at home" exemption, unlike an archetype tile', () => {
+  const state = asym(0, [], [{ tileIndex: 3, type: 'ROADBLOCK', ownerId: 'p1', expiresAtRound: 5 }]);
+  const r = resolveMovement(state, 'p1', 5, 1, 36, { boardTiles: BOARD });
+  assert.strictEqual(r.newPosition, 3, 'p1 walks into their own trap and stops just like anyone else would');
 });
 
 test('CONTROL takes a step per owned tile crossed, so the player stops short', () => {

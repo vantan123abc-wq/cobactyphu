@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert';
-import { maskGameState, HIDDEN_CARD } from './stateRedaction.js';
+import { maskGameState, HIDDEN_CARD, HIDDEN_TRAP } from './stateRedaction.js';
 
 const bank = { id: 'bank', isBank: true, playerId: null };
 const alice = { id: 'p-alice', isBank: false, movementHand: ['MOVE_5', 'JUMP_2'], handRevealedTo: [] };
@@ -77,9 +77,30 @@ test('an empty hand needs no masking and passes through untouched', () => {
   assert.strictEqual(masked.players.find((p) => p.id === 'p-carol'), empty);
 });
 
-test('maskGameState only shallow-copies players — everything else is the same reference', () => {
-  const full = state({ properties: [{ id: 'p1' }], activeTraps: [{ tileIndex: 5 }] });
+test('maskGameState only touches players and activeTraps — everything else (properties, etc.) is the same reference', () => {
+  const full = state({ properties: [{ id: 'p1' }], activeTraps: [] });
   const masked = maskGameState(full, 'p-alice');
   assert.strictEqual(masked.properties, full.properties);
-  assert.strictEqual(masked.activeTraps, full.activeTraps);
+});
+
+// ── activeTraps redaction (trapEngine.js) ───────────────────────────────────
+test('the trap owner sees their own trap in full — real position, type, expiry', () => {
+  const trap = { tileIndex: 12, type: 'ROADBLOCK', ownerId: 'p-alice', expiresAtRound: 10 };
+  const masked = maskGameState(state({ activeTraps: [trap] }), 'p-alice');
+  assert.deepStrictEqual(masked.activeTraps, [trap]);
+});
+
+test('everyone else sees an anonymous stub — same array length, no position/type/owner leaked', () => {
+  const trap = { tileIndex: 12, type: 'ROADBLOCK', ownerId: 'p-alice', expiresAtRound: 10 };
+  const masked = maskGameState(state({ activeTraps: [trap] }), 'p-bob');
+  assert.strictEqual(masked.activeTraps.length, 1, 'count is still visible — only content is hidden');
+  assert.deepStrictEqual(masked.activeTraps[0], { tileIndex: null, type: HIDDEN_TRAP, ownerId: null, expiresAtRound: null });
+});
+
+test('a mixed activeTraps array is masked per-entry, independently', () => {
+  const mine = { tileIndex: 3, type: 'TOLL_BOOTH', ownerId: 'p-alice', expiresAtRound: 8 };
+  const theirs = { tileIndex: 20, type: 'ROADBLOCK', ownerId: 'p-bob', expiresAtRound: 8 };
+  const masked = maskGameState(state({ activeTraps: [mine, theirs] }), 'p-alice');
+  assert.deepStrictEqual(masked.activeTraps[0], mine);
+  assert.strictEqual(masked.activeTraps[1].tileIndex, null);
 });
