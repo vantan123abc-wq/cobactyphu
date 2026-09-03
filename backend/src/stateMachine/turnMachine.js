@@ -1591,8 +1591,20 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
   }
 
   const boardTileCount = boardTiles.length;
-  // TODO: Xử lý thẻ RANDOM (xúc xắc ngẫu nhiên) ở frontend gửi lên, tạm thời assume steps > 0
-  const steps = cardDef.steps > 0 ? cardDef.steps : 1; // Tạm mock
+  // A `random` card's step count is server-generated and arrives on the
+  // payload as `cardRoll` — socketServer.js's serverGeneratedFields() for a
+  // live click, timers.js's buildDefaultAction() for the timeout path. Same
+  // rule ROLL_DICE/GAMBLE_RENT already follow: this state machine is pure and
+  // is never allowed to source its own randomness (dice.js's file header).
+  // A client-supplied cardRoll can't be trusted and is always overwritten at
+  // the socket layer before it reaches here.
+  const steps = cardDef.random ? action.payload?.cardRoll : cardDef.steps;
+  if (!Number.isInteger(steps) || steps < 1) {
+    throw new Error(
+      `handlePlayMovementCard: card '${cardId}' resolved to an invalid step count (${steps})` +
+        (cardDef.random ? ' — a random card needs a server-generated payload.cardRoll' : '')
+    );
+  }
 
   const { newPosition, passedGo, stoppedByTrap } = resolveMovement(
     stateAfterCost,
@@ -1749,11 +1761,11 @@ function startTurn(gameState) {
   let player = getCurrentPlayer(gameState);
   let state = gameState;
 
-  // Tự động rút thêm thẻ nếu là Đột Phá và tay bài chưa đủ 3
+  // Tự động rút thêm thẻ nếu là Đột Phá và tay bài chưa đủ 2
   if (gameState.ruleset === 'ASYMMETRIC') {
     const currentHand = player.movementHand || [];
-    if (currentHand.length < 3) {
-      const drawnCards = drawMovementHand().slice(0, 3 - currentHand.length);
+    if (currentHand.length < 2) {
+      const drawnCards = drawMovementHand(2 - currentHand.length);
       player = { ...player, movementHand: [...currentHand, ...drawnCards] };
       state = replacePlayer(state, player);
     }
@@ -1763,6 +1775,7 @@ function startTurn(gameState) {
     ...state,
     phase: player.inJail ? 'JAIL_DECISION' : (state.ruleset === 'ASYMMETRIC' ? 'PLAYING_CARD' : 'ROLLING'),
     lastRollWasDouble: null,
+    currentDoublesStreak: 0,
     // lastRoll is deliberately NOT cleared here as of 2026-08-25 (user
     // request: "người chơi khác cũng thấy được xúc xắc của người chơi đang
     // đổ xúc xắc trên bàn cờ"). Clearing it on every turn advance made three
@@ -3351,6 +3364,7 @@ export function transitionTurn(gameState, boardTiles, action, now) {
       throw new InvalidTurnActionError(gameState.phase, action.type);
   }
 }
+
 
 
 

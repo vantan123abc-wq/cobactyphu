@@ -21,8 +21,15 @@ export const MOVEMENT_CARDS = {
   // Lùi
   'BACKUP_3': { steps: 3, direction: -1, cost: 0, description: 'Đi lùi 3 bước.' },
 
-  // May rủi
-  'MOVE_RANDOM_2_12': { steps: -2, direction: 1, cost: 0, description: 'Đổ 2 viên xúc xắc ngẫu nhiên (2-12 bước).' },
+  // May rủi. `random` (not a `steps` sentinel) is what marks this card as
+  // needing a server-generated roll — the same explicit-marker convention
+  // eventDictionary.js uses for PROBABILITY options, and the reason
+  // socketServer.js's serverGeneratedFields() can detect it without
+  // hard-coding this card's id. A negative `steps` sentinel was the previous
+  // shape and it silently resolved to 1 step forever (handlePlayMovementCard's
+  // `steps > 0 ? steps : 1` mock), which is exactly the class of bug an
+  // explicit flag prevents.
+  'MOVE_RANDOM_2_12': { random: [2, 12], direction: 1, cost: 0, description: 'Đổ 2 viên xúc xắc ngẫu nhiên (2-12 bước).' },
 
   // Miễn nhiễm pass-through (trả giá bằng nhịp độ chậm)
   'JUMP_2': { steps: 2, direction: 1, cost: 0, ignorePassThrough: true, description: 'Nhảy cóc 2 bước (Miễn nhiễm hiệu ứng lướt).' },

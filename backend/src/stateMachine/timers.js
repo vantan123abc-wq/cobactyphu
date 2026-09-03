@@ -311,8 +311,10 @@ export function buildDefaultAction(phase, gameState, boardTiles = [], randomSour
     case 'PLAYING_CARD': {
       const currentPlayer = gameState.players.find(p => p.id === gameState.currentTurnPlayerId);
       const defaultCard = currentPlayer?.movementHand?.[0];
-      // Nếu không có bài (lỗi), đánh bừa thẻ mặc định, nhưng điều kiện bình thường luôn có bài
-      return { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: defaultCard || 'MOVE_4' } };
+      if (!defaultCard) {
+        throw new Error(`buildDefaultAction: player '${currentPlayer.id}' has no movement cards in PLAYING_CARD phase — violates invariant`);
+      }
+      return { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: defaultCard } };
     }
 
     case 'AWAITING_PURCHASE':

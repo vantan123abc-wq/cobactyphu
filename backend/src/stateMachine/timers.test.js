@@ -92,6 +92,24 @@ test('buildDefaultAction: ROLLING threads gameState.currentDoublesStreak into ro
   assert.equal(action.payload.doublesStreak, 2); // continues from streak 1, not reset to 0
 });
 
+test('buildDefaultAction: PLAYING_CARD defaults to the first card in hand', () => {
+  const gameState = {
+    currentTurnPlayerId: 'p1',
+    players: [{ id: 'p1', movementHand: ['MOVE_7', 'MOVE_5'] }]
+  };
+  const action = buildDefaultAction('PLAYING_CARD', gameState);
+  assert.equal(action.type, 'PLAY_MOVEMENT_CARD');
+  assert.equal(action.payload.cardId, 'MOVE_7');
+});
+
+test('buildDefaultAction: PLAYING_CARD throws if hand is empty (invariant violated)', () => {
+  const gameState = {
+    currentTurnPlayerId: 'p1',
+    players: [{ id: 'p1', movementHand: [] }] // Empty hand
+  };
+  assert.throws(() => buildDefaultAction('PLAYING_CARD', gameState), /violates invariant/);
+});
+
 test('buildDefaultAction throws for an untimed phase', () => {
   assert.throws(() => buildDefaultAction('DRAWING_CARD', {}));
 });

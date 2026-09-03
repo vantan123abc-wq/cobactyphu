@@ -645,6 +645,17 @@ export function serverGeneratedFields(actionType, gameState, payload, randomSour
     return rollDice(0, randomSource);
   }
 
+  if (actionType === 'PLAY_MOVEMENT_CARD') {
+    // ASYMMETRIC's movement deck has one card whose step count is rolled
+    // rather than fixed (movementDictionary.js's `random: [lo, hi]` marker).
+    // Detected off the marker, not the card id, so adding a second random
+    // card needs no change here. Reuses rollDice's real 2d6 distribution
+    // rather than a flat lo..hi pick — the card's own description says
+    // "đổ 2 viên xúc xắc", and 7 should be commoner than 2 or 12.
+    const card = MOVEMENT_CARDS[payload?.cardId];
+    return card?.random ? { cardRoll: rollDice(0, randomSource).total } : {};
+  }
+
   if (actionType === 'GAMBLE_RENT') {
     // REVISED 2026-08-25 (was RENT_RISK_CHOICE, whose Standard branch didn't
     // need a roll at all) — GAMBLE_RENT unconditionally IS the gamble now,
