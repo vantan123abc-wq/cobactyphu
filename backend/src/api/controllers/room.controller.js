@@ -36,6 +36,7 @@ import { createGameState, createPlayerGameState } from '../../domain/gameState.j
 import { createProperty } from '../../domain/property.js';
 import { EVENT_CARDS } from '../../domain/eventDictionary.js';
 import { BUYABLE_TILE_TYPES } from '../../engine/resolveTile.js';
+import { initialDraftState } from '../../engine/draftPhase.js';
 import { isValidZodiac, randomZodiac } from '../../domain/zodiac.js';
 import * as roomRepository from '../../infrastructure/repositories/roomRepository.js';
 import * as gameRepository from '../../infrastructure/repositories/gameRepository.js';
@@ -201,18 +202,31 @@ function initializeGameState({ gameId, roomId, ruleset, players, boardTilesByBoa
     .filter((tile) => BUYABLE_TILE_TYPES.includes(tile.tileType))
     .map((tile) => createProperty({ id: crypto.randomUUID(), gameId, boardTileId: tile.id }));
 
+  // Draft Phase (ASYMMETRIC_MODE_SPEC.md §1.3): the match starts in
+  // DRAFTING_ACTIVE, seeded from the SAME turnOrderedPlayers array
+  // (ascending turnOrder) draftPhase.js's own snake-order logic expects,
+  // rather than in TURN_START — turnMachine.js's handleDraftAction() hands
+  // off to a real TURN_START itself once round 2 finishes. CLASSIC matches
+  // are unaffected: draftState stays null and phase starts at TURN_START
+  // exactly as before this mode existed.
+  const isAsymmetric = (ruleset ?? 'CLASSIC') === 'ASYMMETRIC';
+  const draftState = isAsymmetric
+    ? initialDraftState(turnOrderedPlayers.map((p) => p.id), boardTiles)
+    : null;
+
   return createGameState({
     id: gameId,
     roomId,
     boardId,
     status: 'in_progress',
     ruleset: ruleset ?? 'CLASSIC',
-    phase: 'TURN_START',
+    phase: isAsymmetric ? 'DRAFTING_ACTIVE' : 'TURN_START',
     currentTurnIndex: 0,
     players: [bank, ...turnOrderedPlayers],
     properties,
     eventDeck: shuffled(Object.keys(EVENT_CARDS)),
     startedAt: now,
+    draftState,
   });
 }
 

@@ -57,6 +57,36 @@ test('buildDefaultAction: TURN_START defaults to a plain START_TURN, no payload'
   assert.deepEqual(buildDefaultAction('TURN_START', {}), { type: 'START_TURN' });
 });
 
+// Draft Phase (ASYMMETRIC only, engine/draftPhase.js) — an AFK picker auto-
+// picks a random AFFORDABLE tile from the current offer, or passes if none
+// are. `boardTiles` (buildDefaultAction's 3rd param) is where price comes
+// from — draftState.availableTileIds only carries ids.
+const draftBoardTiles = [
+  createTile({ id: 't1', boardId: 'small', position: 1, tileType: 'property', name: 'Cheap', price: 60 }),
+  createTile({ id: 't2', boardId: 'small', position: 2, tileType: 'property', name: 'Pricey', price: 400 }),
+];
+
+test('buildDefaultAction: DRAFTING_ACTIVE picks a random AFFORDABLE tile from the current offer', () => {
+  const gameState = {
+    currentTurnIndex: 0,
+    players: [{ id: 'p1', turnOrder: 0, isBank: false, currentBalance: 100 }],
+    draftState: { round: 1, pickOrder: ['p1'], currentPickIndex: 0, availableTileIds: ['t1', 't2'] },
+  };
+  // t2 costs more than the picker's $100 balance — only t1 can ever be picked.
+  const action = buildDefaultAction('DRAFTING_ACTIVE', gameState, draftBoardTiles, () => 0.9);
+  assert.deepEqual(action, { type: 'DRAFT_PICK', payload: { tileId: 't1' } });
+});
+
+test('buildDefaultAction: DRAFTING_ACTIVE passes, loss-averse, when nothing offered is affordable', () => {
+  const gameState = {
+    currentTurnIndex: 0,
+    players: [{ id: 'p1', turnOrder: 0, isBank: false, currentBalance: 10 }],
+    draftState: { round: 1, pickOrder: ['p1'], currentPickIndex: 0, availableTileIds: ['t1', 't2'] },
+  };
+  const action = buildDefaultAction('DRAFTING_ACTIVE', gameState, draftBoardTiles);
+  assert.deepEqual(action, { type: 'DRAFT_PASS' });
+});
+
 // 5s, not 15: the auction rework (503a83f) moved FLASH_AUCTION_ACTIVE to a 5s
 // opening window extended per bid, and left this assertion on the old value.
 test('computeDeadline returns a 5-second offset for FLASH_AUCTION_ACTIVE', () => {
@@ -94,10 +124,21 @@ test('buildDefaultAction: ROLLING threads gameState.currentDoublesStreak into ro
   assert.equal(action.payload.doublesStreak, 2); // continues from streak 1, not reset to 0
 });
 
+// FIX (2026-09-03): these two fixtures used to set `currentTurnPlayerId`, a
+// field that does not exist anywhere on the real GameState shape (only
+// `currentTurnIndex` does — domain/gameState.js). Both tests passed anyway
+// because the fake gameState happened to satisfy the buggy code reading that
+// same nonexistent field — hiding a live crash: buildDefaultAction's
+// PLAYING_CARD case always resolved `currentPlayer` to `undefined` in
+// production and then threw an unrelated TypeError instead of the intended
+// "no movement cards" invariant error. Real shape now: `currentTurnIndex` +
+// each player's own `turnOrder`, matching getCurrentPlayer()'s actual
+// contract (turnMachine.js), which this case now calls instead of the
+// phantom field.
 test('buildDefaultAction: PLAYING_CARD defaults to the first card in hand', () => {
   const gameState = {
-    currentTurnPlayerId: 'p1',
-    players: [{ id: 'p1', movementHand: ['MOVE_7', 'MOVE_5'] }]
+    currentTurnIndex: 0,
+    players: [{ id: 'p1', turnOrder: 0, isBank: false, movementHand: ['MOVE_7', 'MOVE_5'] }],
   };
   const action = buildDefaultAction('PLAYING_CARD', gameState);
   assert.equal(action.type, 'PLAY_MOVEMENT_CARD');
@@ -106,8 +147,8 @@ test('buildDefaultAction: PLAYING_CARD defaults to the first card in hand', () =
 
 test('buildDefaultAction: PLAYING_CARD throws if hand is empty (invariant violated)', () => {
   const gameState = {
-    currentTurnPlayerId: 'p1',
-    players: [{ id: 'p1', movementHand: [] }] // Empty hand
+    currentTurnIndex: 0,
+    players: [{ id: 'p1', turnOrder: 0, isBank: false, movementHand: [] }], // Empty hand
   };
   assert.throws(() => buildDefaultAction('PLAYING_CARD', gameState), /violates invariant/);
 });

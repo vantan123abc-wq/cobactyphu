@@ -18,6 +18,9 @@
 
 import { rollDice } from '../engine/dice.js';
 import { MOVEMENT_CARDS } from '../domain/movementDictionary.js';
+// getCurrentPlayer only — not a cycle: turnMachine.js never imports this
+// file, only mentions it in comments (confirmed 2026-09-03).
+import { getCurrentPlayer } from './turnMachine.js';
 import { calculateSellHouse, calculateMortgage } from '../economy/propertyEconomy.js';
 // AWAITING_EVENT_CHOICE's default needs the real card to pick a safe option
 // from — same import infrastructure/websocket/socketServer.js already takes
@@ -58,6 +61,11 @@ export const TIMER_DURATIONS_SECONDS = Object.freeze({
   // redundant with (and slower than) what already exists, not a missing
   // piece. TURN_START itself has no real decision to make (starting isn't
   // optional), so a short timeout matching AWAITING_PURCHASE's is fine.
+  // Draft Phase (ASYMMETRIC only, engine/draftPhase.js), ASYMMETRIC_MODE_SPEC.md
+  // §1.3 — a short window per pick, matching AWAITING_PURCHASE's own 15s: a
+  // draft pick is a comparably quick yes/no-shaped decision (pick 1 of 4, or
+  // pass), not a multi-option read like AWAITING_EVENT_CHOICE's 20s.
+  DRAFTING_ACTIVE: 15,
   TURN_START: 15,
   JAIL_DECISION: 20, // JAIL_DECISION_TIMEOUT_SECONDS
   ROLLING: 20, // ROLL_TIMEOUT_SECONDS
@@ -299,6 +307,28 @@ function buildLiquidationDefaultAction(gameState, boardTiles) {
  */
 export function buildDefaultAction(phase, gameState, boardTiles = [], randomSource = Math.random) {
   switch (phase) {
+    case 'DRAFTING_ACTIVE': {
+      // Auto-pick a random AFFORDABLE tile from the current offer, or pass if
+      // none are (structurally very unlikely at real board prices — round 2's
+      // most expensive realistic offer is still well under STARTING_BALANCE
+      // minus round 1's spend — but checked rather than assumed, the same
+      // defensive posture handleDraftPick itself takes on the live-click
+      // path). Passing on timeout is loss-averse, matching every other timed
+      // choice in this codebase's own default (AWAITING_PURCHASE/
+      // AWAITING_UPGRADE both default to declining rather than spending).
+      const picker = getCurrentPlayer(gameState);
+      const availableTileIds = gameState.draftState?.availableTileIds ?? [];
+      const affordable = availableTileIds.filter((tileId) => {
+        const tile = boardTiles.find((t) => t.id === tileId);
+        return tile && picker && picker.currentBalance >= tile.price;
+      });
+      if (affordable.length === 0) {
+        return { type: 'DRAFT_PASS' };
+      }
+      const tileId = affordable[Math.floor(randomSource() * affordable.length)];
+      return { type: 'DRAFT_PICK', payload: { tileId } };
+    }
+
     case 'TURN_START':
       return { type: 'START_TURN' };
 
@@ -312,10 +342,40 @@ export function buildDefaultAction(phase, gameState, boardTiles = [], randomSour
       return { type: 'ROLL_DICE', payload: rollDice(gameState.currentDoublesStreak, randomSource) };
 
     case 'PLAYING_CARD': {
-      const currentPlayer = gameState.players.find(p => p.id === gameState.currentTurnPlayerId);
+      // FIX (2026-09-03): this read `gameState.currentTurnPlayerId`, a field
+      // that does not exist anywhere on the real GameState shape —
+      // domain/gameState.js only ever sets `currentTurnIndex`. In production
+      // this always resolved `currentPlayer` to `undefined`, and the
+      // `if (!defaultCard) throw new Error(...currentPlayer.id...)` guard
+      // just below then threw an unrelated TypeError (reading `.id` off
+      // `undefined`) instead of the intended invariant error — meaning every
+      // real PLAYING_CARD timeout (an AFK player during card selection)
+      // threw an unrelated TypeError instead of returning the intended
+      // default action. buildDefaultAction() is called OUTSIDE
+      // handleTurnTimeout's own try/catch (infrastructure/websocket/
+      // socketServer.js — that one only wraps applyWithIdempotency), so the
+      // throw propagated out of the whole async function; scheduleTurnTimer's
+      // own outer `.catch(err => console.error(...))` does catch it, so this
+      // was logged rather than crashing the process — but persistAndBroadcast
+      // (the only thing that re-arms the room's timer) is never reached
+      // either way. TimerManager already cleared the fired timer before
+      // calling this, so the net effect is identical either way: the room is
+      // left with NO active timer and silently stalls, the exact failure
+      // PLAYING_CARD's own timer was added to prevent in the first place.
+      // Never caught by this file's own test because that test built a fake
+      // gameState with the same nonexistent field, which is why it passed
+      // for weeks.
+      //
+      // getCurrentPlayer is the real, tested way to resolve this — turnOrder
+      // === currentTurnIndex — imported from turnMachine.js rather than
+      // duplicated here.
+      const currentPlayer = getCurrentPlayer(gameState);
       const defaultCard = currentPlayer?.movementHand?.[0];
       if (!defaultCard) {
-        throw new Error(`buildDefaultAction: player '${currentPlayer.id}' has no movement cards in PLAYING_CARD phase — violates invariant`);
+        // Optional-chained even though currentPlayer "should" always resolve
+        // here — this exact spot is where the previous bug's own error
+        // message crashed instead of throwing, so it stays defensive.
+        throw new Error(`buildDefaultAction: player '${currentPlayer?.id ?? 'unknown'}' has no movement cards in PLAYING_CARD phase — violates invariant`);
       }
       // Same server-generated-randomness rule the live-click path follows
       // (socketServer.js's serverGeneratedFields): a `random` card needs a

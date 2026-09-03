@@ -30,6 +30,13 @@ export const GAME_STATUSES = Object.freeze(['in_progress', 'ending', 'finished',
 // this enum should have already covered; patched here rather than left
 // silently incomplete.
 export const GAME_PHASES = Object.freeze([
+  // (ASYMMETRIC only) Draft Phase, ASYMMETRIC_MODE_SPEC.md §1.3 —
+  // engine/draftPhase.js. Entered once, before Turn 1's own TURN_START, by
+  // initializeGameState() (room.controller.js) setting the match's initial
+  // phase directly to this instead of 'TURN_START' when ruleset ===
+  // 'ASYMMETRIC'. Never re-entered once it exits (to 'TURN_START'). CLASSIC
+  // matches never see this phase at all.
+  'DRAFTING_ACTIVE',
   'TURN_START',
   'JAIL_DECISION', // only entered when the current player is in jail; otherwise TURN_START goes straight to ROLLING
   'PLAYING_CARD', // (ASYMMETRIC only) Chọn bài di chuyển hoặc đặt bẫy thay vì đổ xúc xắc
@@ -196,6 +203,7 @@ export function createPlayerGameState(fields) {
  * @property {string[]} movementDeck - [ASYMMETRIC] Chồng bài di chuyển chung (rút thẻ từ đây)
  * @property {string[]} movementDiscardPile - [ASYMMETRIC] Chồng bài di chuyển đã dùng
  * @property {{ tileIndex: number, type: string, ownerId: string, duration: number }[]} activeTraps - [ASYMMETRIC] Hệ thống Bẫy / Chướng ngại vật trên bản đồ
+ * @property {{round: number, pickOrder: string[], currentPickIndex: number, availableTileIds: string[]}|null} draftState - [ASYMMETRIC] engine/draftPhase.js's live Draft Phase progress — null once the draft ends (or for CLASSIC, always). `round` is 1 or 2; `pickOrder` is THIS round's snake-ordered player ids (reversed for round 2); `currentPickIndex` indexes into it for whose pick it currently is — getCurrentPlayer() (turnMachine.js) reads through this instead of currentTurnIndex while phase === 'DRAFTING_ACTIVE'; `availableTileIds` is this round's random 4-tile offer (property tiles only, never transport/utility — see draftPhase.js's own file header for why).
  */
 // Note: eventDeck (added alongside pendingAuction/pendingEventCardId when
 // turnMachine.js first wired DRAWING_CARD/AWAITING_PURCHASE-decline to real
@@ -262,5 +270,6 @@ export function createGameState(fields) {
     movementDeck: fields.movementDeck ?? [],
     movementDiscardPile: fields.movementDiscardPile ?? [],
     activeTraps: fields.activeTraps ?? [],
+    draftState: fields.draftState ?? null,
   };
 }

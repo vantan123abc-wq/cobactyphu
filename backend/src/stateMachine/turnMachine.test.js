@@ -2,10 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   transitionTurn,
+  getCurrentPlayer,
   InvalidTurnActionError,
   InvalidPropertyActionError,
   InvalidInventoryActionError,
   InvalidForfeitError,
+  InvalidDraftActionError,
 } from './turnMachine.js';
 import { createTile } from '../domain/tile.js';
 import { createProperty } from '../domain/property.js';
@@ -3663,4 +3665,132 @@ test('a player who forfeits while leading an auction is never handed the propert
     'an eliminated player must end up owning nothing at all'
   );
   assert.notEqual(gameState.properties.find((p) => p.id === 'p1').ownerId, 'gp-alice');
+});
+
+// ── Draft Phase (ASYMMETRIC only, ASYMMETRIC_MODE_SPEC.md §1.3) ────────────
+// The ASYMMETRIC ruleset's whole branch through this file had zero coverage
+// before this block — every prior CONTROL/ECONOMY/EXECUTION/MOBILITY test
+// lived in synergyEngine.test.js/movementMiddleware.test.js as isolated
+// pure-engine tests. This is the first integration coverage of an
+// ASYMMETRIC-only phase actually flowing through transitionTurn().
+//
+// `board`'s t1/t10..t35 are ownable `property` tiles (t1 costs 60, t10..t35
+// cost 80-100 — see buildSmallBoard() above); t2 is transport and t6 is
+// utility, both deliberately included in every offer fixture below so a
+// test can assert the draft never offers them.
+function draftGameState(overrides = {}) {
+  return baseGameState({
+    ruleset: 'ASYMMETRIC',
+    phase: 'DRAFTING_ACTIVE',
+    draftState: {
+      round: 1,
+      pickOrder: ['gp-alice', 'gp-bob'],
+      currentPickIndex: 0,
+      availableTileIds: ['t1', 't10', 't11', 't12'],
+    },
+    ...overrides,
+  });
+}
+
+test('DRAFT_PICK assigns ownership to the CURRENT picker, deducts the price, and advances to the next picker', () => {
+  const state = draftGameState();
+  const { gameState, transactions } = transitionTurn(state, board, {
+    type: 'DRAFT_PICK',
+    payload: { tileId: 't1' },
+  });
+
+  const alice = gameState.players.find((p) => p.id === 'gp-alice');
+  assert.equal(alice.currentBalance, 1500 - 60); // t1's price
+  assert.equal(gameState.properties.find((p) => p.boardTileId === 't1').ownerId, 'gp-alice');
+  assert.equal(transactions.length, 1);
+  assert.equal(transactions[0].transactionType, 'purchase');
+
+  assert.equal(gameState.phase, 'DRAFTING_ACTIVE', 'round 1 has one more picker left (Bob)');
+  assert.equal(gameState.draftState.currentPickIndex, 1);
+  assert.equal(getCurrentPlayer(gameState).id, 'gp-bob', 'getCurrentPlayer resolves through draftState during the draft');
+});
+
+test('a draft pick never sets acquiredAtRound — a stamped round would wrongly trigger RECENTLY_ACQUIRED on Turn 1', () => {
+  // roundNumber is 0 both during the draft and at the very start of Turn 1
+  // (it only advances once turn order wraps around) — stamping it here the
+  // way handleBuyProperty does for an in-match purchase would make
+  // property.js's "wait a turn" build gate misfire on the very first turn,
+  // even though a full draft (far longer than one real turn) already
+  // elapsed. null is what that gate already treats as exempt.
+  const { gameState } = transitionTurn(draftGameState(), board, {
+    type: 'DRAFT_PICK',
+    payload: { tileId: 't1' },
+  });
+  assert.equal(gameState.properties.find((p) => p.boardTileId === 't1').acquiredAtRound, null);
+});
+
+test('DRAFT_PICK rejects a tileId that is not in this round\'s offer', () => {
+  assert.throws(
+    () => transitionTurn(draftGameState(), board, { type: 'DRAFT_PICK', payload: { tileId: 't20' } }),
+    (err) => err instanceof InvalidDraftActionError && err.reason === 'TILE_NOT_AVAILABLE'
+  );
+});
+
+test('DRAFT_PICK rejects a pick the picker cannot afford, same as BUY_PROPERTY', () => {
+  const poor = draftGameState();
+  const alice = poor.players.find((p) => p.id === 'gp-alice');
+  poor.players = poor.players.map((p) => (p.id === 'gp-alice' ? { ...alice, currentBalance: 10 } : p));
+
+  assert.throws(
+    () => transitionTurn(poor, board, { type: 'DRAFT_PICK', payload: { tileId: 't1' } }),
+    (err) => err instanceof InvalidDraftActionError && err.reason === 'INSUFFICIENT_BALANCE'
+  );
+});
+
+test('DRAFT_PASS spends nothing but still advances to the next picker', () => {
+  const { gameState } = transitionTurn(draftGameState(), board, { type: 'DRAFT_PASS' });
+  const alice = gameState.players.find((p) => p.id === 'gp-alice');
+  assert.equal(alice.currentBalance, 1500, 'passing costs nothing');
+  assert.equal(gameState.draftState.currentPickIndex, 1);
+  assert.equal(getCurrentPlayer(gameState).id, 'gp-bob');
+});
+
+test('round 1 completing rolls into round 2: fresh offer excluding round-1 picks, snake-reversed order, index reset', () => {
+  const afterAlice = transitionTurn(draftGameState(), board, {
+    type: 'DRAFT_PICK',
+    payload: { tileId: 't1' },
+  }).gameState;
+  const afterBob = transitionTurn(afterAlice, board, {
+    type: 'DRAFT_PICK',
+    payload: { tileId: 't10' },
+  }).gameState;
+
+  assert.equal(afterBob.phase, 'DRAFTING_ACTIVE', 'round 2 still has picks left');
+  assert.equal(afterBob.draftState.round, 2);
+  assert.equal(afterBob.draftState.currentPickIndex, 0);
+  assert.deepEqual(afterBob.draftState.pickOrder, ['gp-bob', 'gp-alice'], 'snake order reverses for round 2');
+  assert.ok(!afterBob.draftState.availableTileIds.includes('t1'), 't1 was drafted in round 1');
+  assert.ok(!afterBob.draftState.availableTileIds.includes('t10'), 't10 was drafted in round 1');
+  assert.ok(
+    afterBob.draftState.availableTileIds.every((id) => !['t2', 't6'].includes(id)),
+    'transport (t2) and utility (t6) are never offered — draftPhase.js only offers `property` tiles'
+  );
+});
+
+test('round 2 completing clears draftState and hands off to a real TURN_START at seat 0', () => {
+  let state = draftGameState();
+  state = transitionTurn(state, board, { type: 'DRAFT_PICK', payload: { tileId: 't1' } }).gameState;
+  state = transitionTurn(state, board, { type: 'DRAFT_PICK', payload: { tileId: 't10' } }).gameState;
+  // Round 2, snake-reversed: Bob picks first this time.
+  assert.equal(getCurrentPlayer(state).id, 'gp-bob');
+  state = transitionTurn(state, board, {
+    type: 'DRAFT_PICK',
+    payload: { tileId: state.draftState.availableTileIds[0] },
+  }).gameState;
+  assert.equal(getCurrentPlayer(state).id, 'gp-alice', 'last picker of the draft');
+  state = transitionTurn(state, board, { type: 'DRAFT_PASS' }).gameState;
+
+  assert.equal(state.draftState, null);
+  assert.equal(state.phase, 'TURN_START');
+  assert.equal(state.currentTurnIndex, 0);
+  assert.equal(getCurrentPlayer(state).id, 'gp-alice', 'back to the match\'s own turnOrder, seat 0');
+});
+
+test('DRAFTING_ACTIVE rejects any action other than DRAFT_PICK/DRAFT_PASS', () => {
+  assert.throws(() => transitionTurn(draftGameState(), board, { type: 'ROLL_DICE' }), InvalidTurnActionError);
 });

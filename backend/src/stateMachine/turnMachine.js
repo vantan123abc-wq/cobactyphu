@@ -185,6 +185,7 @@ import { EVENT_CARDS } from '../domain/eventDictionary.js';
 import { MIN_UPGRADE_LEVEL, MAX_UPGRADE_LEVEL } from '../domain/property.js';
 import { computeBankruptcySettlement } from '../engine/bankruptcyApplication.js';
 import { checkElimination, shouldEnterFinalPhase, shouldEndFinalPhase, rankPlayers } from './gameEndMachine.js';
+import { advanceDraftState } from '../engine/draftPhase.js';
 
 const PASS_GO_SALARY = 200; // GAME_DESIGN_SPEC.md §0, PROPOSED classic value
 
@@ -241,6 +242,15 @@ export class InvalidPropertyActionError extends Error {
   }
 }
 
+// DRAFT_PICK's own business-rule rejections (Draft Phase, ASYMMETRIC only).
+export class InvalidDraftActionError extends Error {
+  constructor(reason, message) {
+    super(message);
+    this.name = 'InvalidDraftActionError';
+    this.reason = reason;
+  }
+}
+
 // USE_INVENTORY_CARD's own business-rule rejections (Card Inventory system).
 // A distinct class for the same reason InvalidJailActionError below is one:
 // these were originally thrown as `InvalidTurnActionError('ANY', …)`, which
@@ -288,6 +298,12 @@ export class InvalidForfeitError extends Error {
 // BANKRUPTCY_CHECK, ...) intentionally have no entry here: nothing ever
 // stops on them long enough to receive an action.
 const VALID_ACTIONS_BY_PHASE = Object.freeze({
+  // Draft Phase (ASYMMETRIC only, engine/draftPhase.js) — DRAFT_PASS is a
+  // real, first-class alternative to DRAFT_PICK, not a fallback: mirrors
+  // AWAITING_PURCHASE's own BUY_PROPERTY/SKIP_PURCHASE split so a player who
+  // doesn't want (or, after round 1's spend, can't afford) anything in the
+  // current 4-tile offer always has a legal move.
+  DRAFTING_ACTIVE: ['DRAFT_PICK', 'DRAFT_PASS'],
   TURN_START: ['START_TURN'],
   JAIL_DECISION: ['PAY_JAIL_FINE', 'USE_JAIL_CARD', 'ATTEMPT_JAIL_ROLL'],
   ROLLING: ['ROLL_DICE'],
@@ -314,6 +330,17 @@ const VALID_ACTIONS_BY_PHASE = Object.freeze({
 // (every handler below) and the impure dispatch layer, rather than a second
 // copy drifting out of sync.
 export function getCurrentPlayer(gameState) {
+  // DRAFTING_ACTIVE (Draft Phase, ASYMMETRIC only) has its own picking
+  // order — draftState.pickOrder/currentPickIndex — completely independent
+  // of the match's normal turnOrder/currentTurnIndex, which hasn't started
+  // yet at this point. Branching here, rather than adding DRAFT_PICK/
+  // DRAFT_PASS to socketServer.js's TURN_INDEPENDENT_ACTION_TYPES, means the
+  // existing NOT_YOUR_TURN guard enforces draft pick order for free — it
+  // already resolves "whose turn" through this exact function.
+  if (gameState.phase === 'DRAFTING_ACTIVE' && gameState.draftState) {
+    const { pickOrder, currentPickIndex } = gameState.draftState;
+    return gameState.players.find((p) => p.id === pickOrder[currentPickIndex]);
+  }
   return gameState.players.find((p) => !p.isBank && p.turnOrder === gameState.currentTurnIndex);
 }
 
@@ -1677,6 +1704,106 @@ function applyTeleport(gameState, boardTiles, victimId, effect, now, priorTransa
   return {
     gameState: landing.gameState,
     transactions: [...priorTransactions, ...landing.transactions],
+  };
+}
+
+/**
+ * Draft Phase dispatcher (ASYMMETRIC_MODE_SPEC.md §1.3, engine/draftPhase.js)
+ * — handles both DRAFT_PICK and DRAFT_PASS. Both consume this pick's slot in
+ * draftState.pickOrder identically; DRAFT_PICK additionally spends money and
+ * assigns ownership, mirroring AWAITING_PURCHASE's own BUY_PROPERTY/
+ * SKIP_PURCHASE split.
+ *
+ * getCurrentPlayer(gameState) already resolves the correct picker for this
+ * phase (see its own DRAFTING_ACTIVE branch) — the same function
+ * socketServer.js's NOT_YOUR_TURN guard uses, so an out-of-order pick is
+ * already rejected before this is ever reached.
+ */
+function handleDraftAction(gameState, boardTiles, action, now) {
+  const picker = getCurrentPlayer(gameState);
+  if (!picker || !gameState.draftState) {
+    throw new InvalidDraftActionError('NO_ACTIVE_DRAFT', 'handleDraftAction: no draft in progress');
+  }
+
+  let stateAfterPurchase = gameState;
+  let transactions = [];
+
+  if (action.type === 'DRAFT_PICK') {
+    const { tileId } = action.payload ?? {};
+    if (!gameState.draftState.availableTileIds.includes(tileId)) {
+      throw new InvalidDraftActionError(
+        'TILE_NOT_AVAILABLE',
+        `handleDraftAction: '${tileId}' is not one of this round's offered tiles`
+      );
+    }
+
+    const tile = boardTiles.find((t) => t.id === tileId);
+    const property = gameState.properties.find((p) => p.boardTileId === tileId);
+    if (!tile || !property) {
+      throw new InvalidDraftActionError('UNKNOWN_TILE', `handleDraftAction: tile '${tileId}' not found on this board`);
+    }
+
+    const { amount, transactionType } = calculatePurchase(tile);
+    if (picker.currentBalance < amount) {
+      throw new InvalidDraftActionError(
+        'INSUFFICIENT_BALANCE',
+        `handleDraftAction: balance ${picker.currentBalance} is less than the price ${amount} of '${tile.name}'`
+      );
+    }
+
+    const bank = getBankPlayer(gameState);
+    const { gameState: afterPayment, transaction } = applyTransaction(gameState, {
+      fromPlayerId: picker.id,
+      toPlayerId: bank.id,
+      amount,
+      transactionType,
+    });
+
+    const properties = afterPayment.properties.map((p) =>
+      // acquiredAtRound is deliberately left null — NOT gameState.roundNumber,
+      // unlike handleBuyProperty's equivalent line. roundNumber is still 0
+      // both here and at the very start of Turn 1 (it only advances once turn
+      // order wraps, and the draft happens entirely before Turn 1 begins), so
+      // stamping it here would make property.js's RECENTLY_ACQUIRED "wait a
+      // turn" gate wrongly block building on a draft-acquired tile during
+      // Turn 1 — even though a full draft (far longer than "a turn") already
+      // elapsed. null is exactly what that gate already treats as "never
+      // subject to this cooldown", the same value a negotiated trade leaves
+      // it at (property.js's own doc comment on the field).
+      p.id === property.id ? { ...p, ownerId: picker.id, acquiredAt: now, acquiredAtRound: null } : p
+    );
+
+    stateAfterPurchase = { ...afterPayment, properties };
+    transactions = [transaction];
+  }
+  // DRAFT_PASS: no purchase — falls through to the shared advance step below.
+
+  const ownedTileIds = new Set(
+    stateAfterPurchase.properties.filter((p) => p.ownerId !== null).map((p) => p.boardTileId)
+  );
+  const playerIdsInTurnOrder = stateAfterPurchase.players
+    .filter((p) => !p.isBank)
+    .sort((a, b) => a.turnOrder - b.turnOrder)
+    .map((p) => p.id);
+
+  const { done, draftState } = advanceDraftState(stateAfterPurchase.draftState, playerIdsInTurnOrder, boardTiles, ownedTileIds);
+
+  return {
+    gameState: {
+      ...stateAfterPurchase,
+      draftState,
+      // The draft ending hands off to the match's normal turn loop exactly
+      // as if it had never run — TURN_START, seat 0. startTurn() (the very
+      // next dispatch) is what actually draws each player's opening
+      // movementHand; nothing here needs to touch it. currentTurnIndex is
+      // already 0 the whole way through the draft (initializeGameState sets
+      // it once at game creation and nothing during drafting ever changes
+      // it — only draftState.currentPickIndex does), so this is a defensive
+      // restatement, not a real change.
+      phase: done ? 'TURN_START' : 'DRAFTING_ACTIVE',
+      currentTurnIndex: done ? 0 : stateAfterPurchase.currentTurnIndex,
+    },
+    transactions,
   };
 }
 
@@ -3438,6 +3565,9 @@ export function transitionTurn(gameState, boardTiles, action, now) {
   }
 
   switch (gameState.phase) {
+    case 'DRAFTING_ACTIVE':
+      return handleDraftAction(gameState, boardTiles, action, now);
+
     case 'TURN_START':
       return { gameState: startTurn(gameState), transactions: [] };
 

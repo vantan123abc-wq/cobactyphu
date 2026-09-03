@@ -63,8 +63,8 @@ beforeEach(() => {
   resetGameRepository();
 });
 
-async function createRoomAs(userId) {
-  const req = mockReq({ user: { id: userId } });
+async function createRoomAs(userId, body = {}) {
+  const req = mockReq({ user: { id: userId }, body });
   const res = mockRes();
   await createRoom(req, res);
   return res.body;
@@ -359,6 +359,54 @@ test('startGame: constructs one unowned Property per buyable tile from the real 
     assert.equal(property.upgradeLevel, 0);
     assert.equal(property.gameId, res.body.gameId);
   }
+});
+
+test('startGame: ruleset ASYMMETRIC starts the match in DRAFTING_ACTIVE with a populated draftState, offering only property tiles', async () => {
+  const boardTilesByBoard = {
+    small: [
+      createTile({ id: 't0', boardId: 'small', position: 0, tileType: 'go', name: 'GO' }),
+      createTile({ id: 't1', boardId: 'small', position: 1, tileType: 'property', name: 'A', price: 60 }),
+      createTile({ id: 't2', boardId: 'small', position: 2, tileType: 'property', name: 'B', price: 80 }),
+      createTile({ id: 't3', boardId: 'small', position: 3, tileType: 'transport', name: 'Station A', price: 200 }),
+      createTile({ id: 't4', boardId: 'small', position: 4, tileType: 'utility', name: 'Electric Co', price: 150 }),
+    ],
+  };
+
+  const created = await createRoomAs('user-host', { ruleset: 'ASYMMETRIC' });
+  await joinAs('user-guest', created.joinCode);
+  await setReadyAs('user-guest', created.roomId, true);
+
+  const res = await startGameAs('user-host', created.roomId, boardTilesByBoard);
+  assert.equal(res.statusCode, 201);
+
+  const gameState = getGameState(created.roomId);
+  assert.equal(gameState.ruleset, 'ASYMMETRIC');
+  assert.equal(gameState.phase, 'DRAFTING_ACTIVE');
+  assert.ok(gameState.draftState);
+  assert.equal(gameState.draftState.round, 1);
+  assert.equal(gameState.draftState.currentPickIndex, 0);
+  assert.deepEqual(gameState.draftState.pickOrder.sort(), gameState.players.filter((p) => !p.isBank).map((p) => p.id).sort());
+  assert.deepEqual(
+    gameState.draftState.availableTileIds.sort(),
+    ['t1', 't2'],
+    'only the property tiles are offered — the station and the utility never are'
+  );
+});
+
+test('startGame: ruleset CLASSIC (the default) still starts in TURN_START with no draftState, unaffected by the Draft Phase wiring', async () => {
+  const created = await createRoomAs('user-host'); // no ruleset in body -> CLASSIC
+  await joinAs('user-guest', created.joinCode);
+  await setReadyAs('user-guest', created.roomId, true);
+
+  const res = await startGameAs('user-host', created.roomId, {
+    small: [createTile({ id: 't0', boardId: 'small', position: 0, tileType: 'go', name: 'GO' })],
+  });
+  assert.equal(res.statusCode, 201);
+
+  const gameState = getGameState(created.roomId);
+  assert.equal(gameState.ruleset, 'CLASSIC');
+  assert.equal(gameState.phase, 'TURN_START');
+  assert.equal(gameState.draftState, null);
 });
 
 test('startGame: with no boardTilesByBoard available (req.app.get returns undefined), properties is an empty array rather than throwing — same graceful-degradation posture as board.controller.js\'s own fallback', async () => {
