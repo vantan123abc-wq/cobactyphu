@@ -2,6 +2,14 @@
  * Từ điển các Thẻ Di Chuyển (Movement Deck).
  * Dùng cho chế độ Đột Phá (ASYMMETRIC) để thay thế xúc xắc.
  */
+// Hand economics, ASYMMETRIC_MODE_SPEC.md §1.3. Two separate numbers on
+// purpose: HAND_SIZE is what startTurn tops a hand back up to, HAND_CAP is
+// the ceiling a card-gain effect may push it past. Conflating them is what
+// made V3 §2.4 (ECONOMY draws a card) a no-op — at a single hand size, a
+// player already holding the maximum gains nothing from drawing.
+export const HAND_SIZE = 2;
+export const HAND_CAP = 5;
+
 export const MOVEMENT_CARDS = {
   // Nền tảng - Giữ nhịp độ (x2 weight)
   'MOVE_5': { steps: 5, direction: 1, cost: 0, description: 'Đi 5 bước.' },

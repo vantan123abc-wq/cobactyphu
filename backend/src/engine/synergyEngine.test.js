@@ -2,12 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert';
 import { createTile } from '../domain/tile.js';
 import { createProperty } from '../domain/property.js';
-import { archetypeOf, archetypeCount, synergyTier, passThroughEffect } from './synergyEngine.js';
+import { archetypeOf, archetypeCount, synergyTier, passThroughEffect, landingEffect } from './synergyEngine.js';
 
 // Real small-board positions/groups (supabase/seed/boards.sql). Built through
-// createTile so a field the factory drops (the `color` that
-// calculateRentMiddleware still reads, for instance) can never silently pass
-// a test that real board data would fail.
+// createTile so any field the factory drops can never silently pass a test
+// that real board data would fail — the exact way the old
+// calculateRentMiddleware test hid a dead `targetTile.color` check.
 const T = (position, groupId, tileType = 'property') =>
   createTile({ id: `t${position}`, boardId: 'small', position, tileType, name: `T${position}`, groupId });
 
@@ -88,4 +88,25 @@ test('passThroughEffect never fires on your own tile, or an unowned one', () => 
 
   const unowned = stateWith([own(1, null), own(3, null)]);
   assert.strictEqual(passThroughEffect(unowned, BOARD, BOARD[0], 'p1'), null);
+});
+
+test('ECONOMY pass-through is a REROLL, not a confiscation — the mechanic that keeps a 2-card hand playable', () => {
+  const board = [T(10, 'purple'), T(12, 'purple'), T(13, 'purple')];
+  const state = { ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties: [own(10, 'p2'), own(12, 'p2')] };
+  assert.deepStrictEqual(passThroughEffect(state, board, board[0], 'p1'), { type: 'CARD_REROLL', ownerId: 'p2' });
+});
+
+test('ECONOMY landing lets the owner draw 2; DENIAL landing records a 2-round reveal', () => {
+  const board = [T(10, 'purple'), T(12, 'purple'), T(19, 'yellow'), T(21, 'yellow')];
+  const economy = { ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties: [own(10, 'p2'), own(12, 'p2')] };
+  assert.deepStrictEqual(landingEffect(economy, board, board[0], 'p1'), { type: 'OWNER_DRAWS', ownerId: 'p2', amount: 2 });
+
+  const denial = { ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties: [own(19, 'p2'), own(21, 'p2')] };
+  assert.deepStrictEqual(landingEffect(denial, board, board[2], 'p1'), { type: 'REVEAL_HAND', ownerId: 'p2', rounds: 2 });
+});
+
+test('landingEffect stays silent for CONTROL/EXECUTION — rent is calculateRentMiddleware\'s job, not a rider', () => {
+  const board = [T(1, 'red'), T(3, 'red')];
+  const state = { ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties: [own(1, 'p2'), own(3, 'p2')] };
+  assert.strictEqual(landingEffect(state, board, board[0], 'p1'), null);
 });

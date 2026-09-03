@@ -139,6 +139,66 @@ export function passThroughEffect(gameState, boardTiles, tile, crosserId) {
     return amount > 0 ? { type: 'TOLL', amount, ownerId: property.ownerId } : null;
   }
 
+  // ECONOMY (§2.4): reroll, not confiscation. The victim loses a random card
+  // and immediately draws a replacement, so their hand SIZE never drops —
+  // that distinction is the whole design. Taking a card outright would leave
+  // a 2-card hand at 1, which is the no-choice state this entire ruleset
+  // exists to escape, and ECONOMY is the most-crossed region on the board
+  // (81.6 crossings/match in the simulation) so it would happen constantly.
+  //
+  // What it does destroy is card HOARDING: a player saving a JUMP to punch
+  // through CONTROL can have it shuffled away on the approach. That makes
+  // ECONOMY the natural counter to JUMP, which is in turn the counter to
+  // CONTROL — the loop the archetype matrix wanted and previously lacked.
+  if (archetype === 'ECONOMY') {
+    return { type: 'CARD_REROLL', ownerId: property.ownerId };
+  }
+
+  // DENIAL (§3.1): information, not denial of action. "Lock a card type" was
+  // the V2 design and it could deadlock outright — a locked type against a
+  // hand holding only that type leaves no legal move, in the one phase whose
+  // action list has no always-legal fallback.
+  //
+  // ⚠️ INERT TODAY. socketServer.js broadcasts the whole GameState to every
+  // player in the room with no per-recipient redaction, so every hand is
+  // already visible to everyone. This records the intent so redaction has
+  // something to read, and so the effect starts working the moment redaction
+  // lands, but it changes nothing a player can observe right now.
+  if (archetype === 'DENIAL') {
+    return { type: 'REVEAL_NEXT_CARD', ownerId: property.ownerId };
+  }
+
+  return null;
+}
+
+/**
+ * The extra effect (beyond rent) of STOPPING on `tile`. Rent itself is
+ * calculateRentMiddleware's job; this is only the archetype rider.
+ *
+ * @returns {{type: string, ownerId: string, amount?: number, rounds?: number}|null}
+ */
+export function landingEffect(gameState, boardTiles, tile, landerId) {
+  const property = gameState.properties.find((p) => p.boardTileId === tile.id);
+  if (!property || !property.ownerId || property.ownerId === landerId || property.mortgaged) {
+    return null;
+  }
+
+  const archetype = archetypeOf(tile);
+  const tier = synergyTier(gameState, boardTiles, property.ownerId, archetype);
+  if (tier === 0) return null;
+
+  // §2.4: the rare, large version of the pass-through draw. Two cards, and
+  // they may push the owner past HAND_SIZE up to HAND_CAP — that headroom is
+  // what makes ECONOMY a card engine rather than a rounding error.
+  if (archetype === 'ECONOMY') {
+    return { type: 'OWNER_DRAWS', ownerId: property.ownerId, amount: 2 };
+  }
+
+  // §3.1: same inert-until-redaction caveat as REVEAL_NEXT_CARD above.
+  if (archetype === 'DENIAL') {
+    return { type: 'REVEAL_HAND', ownerId: property.ownerId, rounds: 2 };
+  }
+
   return null;
 }
 

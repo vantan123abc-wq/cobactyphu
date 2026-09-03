@@ -98,7 +98,7 @@ import { verifyJwt, verifyJwtAsymmetric } from '../../auth/verifyJwt.js';
 import { transitionTurn, getCurrentPlayer } from '../../stateMachine/turnMachine.js';
 import { applyTradeAction, TRADE_ACTION_TYPES } from '../../stateMachine/tradeMachine.js';
 import { applyWithIdempotency, createIdempotencyCache } from '../../stateMachine/idempotency.js';
-import { TimerManager, buildDefaultAction, TIMER_DURATIONS_SECONDS } from '../../stateMachine/timers.js';
+import { TimerManager, buildDefaultAction, TIMER_DURATIONS_SECONDS, FLASH_AUCTION_BID_EXTENSION_SECONDS } from '../../stateMachine/timers.js';
 import * as gameRepository from '../../infrastructure/repositories/gameRepository.js';
 import { rollDice } from '../../engine/dice.js';
 import { EVENT_CARDS } from '../../domain/eventDictionary.js';
@@ -507,39 +507,73 @@ function scheduleTurnTimer(io, supabase, roomId, gameState, boardTilesByBoard) {
  * @param {{ small?: object[], large?: object[] }} boardTilesByBoard
  */
 async function persistAndBroadcast(io, supabase, roomId, actionType, previousGameState, result, boardTilesByBoard) {
+  // In-memory hot store first — this is the authoritative current state and
+  // is all the broadcast below needs.
   gameRepository.setGameState(roomId, result.gameState);
 
-  const reason = gameRepository.deriveSnapshotReason(actionType, previousGameState, result.gameState);
-  if (reason) {
-    try {
-      await gameRepository.saveSnapshot(supabase, result.gameState, reason);
-    } catch (err) {
-      console.error(`persistAndBroadcast: failed to persist snapshot (reason=${reason}) for room '${roomId}':`, err.message);
-    }
+  // FLASH_AUCTION per-bid timer extension (2026-09-03): when a PLACE_BID
+  // lands and the phase is still FLASH_AUCTION_ACTIVE, extend the deadline
+  // by FLASH_AUCTION_BID_EXTENSION_SECONDS (5s) from NOW rather than
+  // restarting from the full FLASH_AUCTION_ACTIVE base duration. This
+  // gives latecomers a fair window to respond without ballooning the
+  // total auction time when bids keep coming.
+  let deadlineAt;
+  if (actionType === 'PLACE_BID' && result.gameState.phase === 'FLASH_AUCTION_ACTIVE') {
+    // Cancel any existing timer and start a fresh 5-second one.
+    turnTimers.cancel(roomId);
+    const nowMs = Date.now();
+    const extendedDeadline = new Date(nowMs + FLASH_AUCTION_BID_EXTENSION_SECONDS * 1000).toISOString();
+    deadlineAt = turnTimers.start(roomId, 'FLASH_AUCTION_ACTIVE', (phase) => {
+      handleTurnTimeout(io, supabase, roomId, phase, boardTilesByBoard).catch((err) => {
+        console.error(`turnTimers: unhandled error processing a '${phase}' timeout for room '${roomId}':`, err.message);
+      });
+    });
+    // Override the returned deadline with our custom extended one.
+    // TimerManager.start() already scheduled FLASH_AUCTION_ACTIVE's 5s base,
+    // which equals our extension — so the scheduled callback fires at the right
+    // time. We just need the broadcast value to match.
+    deadlineAt = extendedDeadline;
+  } else {
+    deadlineAt = scheduleTurnTimer(io, supabase, roomId, result.gameState, boardTilesByBoard);
   }
 
-  // Win Condition design, wired 2026-08-21 — match_results (DATABASE_DESIGN.md
-  // §13) had columns/RLS since P02 but nothing ever wrote to it. A separate
-  // try/catch from the snapshot save above: two independent writes to two
-  // different tables, either can fail without blocking the other or the
-  // broadcast below (a durable-persistence failure has never blocked
-  // gameplay in this design — see saveSnapshot's own error handling).
-  if (reason === 'game_over' && result.gameState.status === 'finished') {
-    try {
-      await gameRepository.saveMatchResult(supabase, result.gameState);
-    } catch (err) {
-      console.error(`persistAndBroadcast: failed to persist match_results for room '${roomId}':`, err.message);
-    }
-  }
-
-  const deadlineAt = scheduleTurnTimer(io, supabase, roomId, result.gameState, boardTilesByBoard);
-
+  // PERF (2026-09-03): broadcast BEFORE the durable Supabase writes, not
+  // after. saveSnapshot runs two sequential Supabase upserts (`games`, then
+  // `game_state_snapshots`), and this used to sit on the critical path of
+  // every END_TURN — so on a Render(US)⇄Supabase(US)⇄player(SEA) deployment
+  // the next player waited a full DB round trip (often 300–800ms) just to
+  // see that it had become their turn. Durability has never gated gameplay
+  // in this design (saveSnapshot's own callers already swallow its errors,
+  // and the hot store is the real source of truth — the snapshot is only a
+  // cold-restart fallback), so moving it after the emit costs nothing in
+  // correctness and removes that stall entirely.
   io.to(roomId).emit('S2C_STATE_UPDATE', {
     stateVersion: result.gameState.stateVersion,
     gameState: result.gameState,
     transactions: result.transactions,
     deadlineAt, // GAME_STATE_MACHINE.md §7: "broadcasts an absolute deadlineAt timestamp" — null when the current phase isn't timed
   });
+
+  const reason = gameRepository.deriveSnapshotReason(actionType, previousGameState, result.gameState);
+  if (!reason) return;
+
+  // The two durable writes are independent tables; run them concurrently
+  // rather than sequentially. Each failure is logged, not thrown — a
+  // persistence failure must never surface to players as a rejected action
+  // when the move already applied and broadcast.
+  const writes = [
+    gameRepository
+      .saveSnapshot(supabase, result.gameState, reason)
+      .catch((err) => console.error(`persistAndBroadcast: snapshot save failed (reason=${reason}) for room '${roomId}':`, err.message)),
+  ];
+  if (reason === 'game_over' && result.gameState.status === 'finished') {
+    writes.push(
+      gameRepository
+        .saveMatchResult(supabase, result.gameState)
+        .catch((err) => console.error(`persistAndBroadcast: match_results save failed for room '${roomId}':`, err.message))
+    );
+  }
+  await Promise.all(writes);
 }
 
 /**
@@ -733,42 +767,45 @@ export function serverGeneratedFields(actionType, gameState, payload, randomSour
 export function handleGameAction(io, socket, roomRepository, supabase, boardTilesByBoard = {}, randomSource = Math.random) {
   socket.on('C2S_GAME_ACTION', async (message) => {
     const { roomId, actionType, payload, clientActionId, lastSeenStateVersion } = message ?? {};
-    const record = roomId ? await roomRepository.getRoomById(supabase, roomId) : null;
-    const isParticipant = record?.players?.some((p) => p.playerId === socket.user.id) ?? false;
 
-    if (!record || !isParticipant) {
-      socket.emit('S2C_ACTION_REJECTED', {
-        clientActionId: clientActionId ?? null,
-        errorCode: 'NOT_A_PARTICIPANT',
-        message: `Room '${roomId}' not found, or you are not a member of it`,
-      });
-      return;
-    }
-
-    if (record.status !== 'in_progress') {
-      socket.emit('S2C_ACTION_REJECTED', {
-        clientActionId: clientActionId ?? null,
-        errorCode: 'ROOM_NOT_IN_PROGRESS',
-        message: `Room '${record.id}' is not in progress (status: ${record.status})`,
-      });
-      return;
-    }
-
-    // GameState lives in gameRepository.js's in-memory hot store, not on
-    // the room record (see file header). resolveLiveGameState (P10-T03,
-    // shared with handleReconnect) falls back to the last durable Supabase
-    // snapshot on a cold miss (server restart) and folds any load failure
-    // into a plain `null` — a real gap (room says in_progress but no game
-    // was ever persisted) reads the same as "couldn't load state" here,
-    // both correctly reported as GAME_NOT_FOUND rather than crashing the
-    // handler.
+    // PERF (2026-09-03) — the room record is NOT re-fetched from Supabase on
+    // every action any more. It used to be: `getRoomById` runs two sequential
+    // Supabase queries (`rooms` row, then `fetchPlayers`), and this handler
+    // ran it on *every* ROLL_DICE / BUY_PROPERTY / PLACE_BID / …, so each move
+    // in a live game paid a full cross-region DB round trip before the engine
+    // was even touched. On a Render (US) ⇄ Supabase (US) ⇄ player (SEA) path
+    // that was the single largest source of the "everything lags" the user
+    // reported after deploying.
+    //
+    // It is redundant during gameplay: the hot in-memory GameState already
+    // answers every question the record was consulted for —
+    //   • "does this game exist"      → gameState is non-null
+    //   • "is the caller a player"    → findGamePlayer(gameState, …) below
+    //   • "is it still in progress"   → gameState.status check below
+    // — and the participant roster is frozen once a match starts (join/leave
+    // are pre-game only). So: resolve the hot state first (an in-memory Map
+    // hit, no I/O), and only fall back to getRoomById on a genuine cold miss
+    // (server restart mid-match), where correctness matters and the one-time
+    // cost does not.
     const gameState = await gameRepository.resolveLiveGameState(roomId, supabase);
+
     if (!gameState) {
-      socket.emit('S2C_ACTION_REJECTED', {
-        clientActionId: clientActionId ?? null,
-        errorCode: 'GAME_NOT_FOUND',
-        message: `Room '${record.id}' is in progress but no game state could be loaded`,
-      });
+      // Cold miss: no hot state and no durable snapshot to load. This is the
+      // ONLY branch that still consults the room record — to tell apart
+      // "room never existed / you're not in it", "game genuinely not started
+      // yet", and "in_progress but state could not be loaded".
+      const record = roomId ? await roomRepository.getRoomById(supabase, roomId) : null;
+      const isParticipant = record?.players?.some((p) => p.playerId === socket.user.id) ?? false;
+      let errorCode = 'GAME_NOT_FOUND';
+      let errMessage = `Room '${roomId}' is in progress but no game state could be loaded`;
+      if (!record || !isParticipant) {
+        errorCode = 'NOT_A_PARTICIPANT';
+        errMessage = `Room '${roomId}' not found, or you are not a member of it`;
+      } else if (record.status !== 'in_progress') {
+        errorCode = 'ROOM_NOT_IN_PROGRESS';
+        errMessage = `Room '${record.id}' is not in progress (status: ${record.status})`;
+      }
+      socket.emit('S2C_ACTION_REJECTED', { clientActionId: clientActionId ?? null, errorCode, message: errMessage });
       return;
     }
 
@@ -942,7 +979,26 @@ export function initSocketServer(httpServer, roomRepository, jwtSecret, supabase
   // app.js: found missing only by actually connecting from a real browser
   // (frontend :5173, backend :5000), invisible to socketServer.test.js's
   // in-process mock sockets and to `node --test` generally.
-  const io = new Server(httpServer, { cors: { origin: true, methods: ['GET', 'POST'] } });
+  const io = new Server(httpServer, {
+    cors: { origin: true, methods: ['GET', 'POST'] },
+    // PERF / stability tuning (2026-09-03), after the deployed game felt laggy:
+    //
+    // - `transports: ['websocket', 'polling']` — offer WebSocket first. The
+    //   default order is polling-then-upgrade, which spends the first few
+    //   round trips on HTTP long-polling (each in-game message a separate
+    //   request) before switching. The client also asks for websocket-first;
+    //   polling stays listed purely as a fallback for networks that block WS.
+    // - `pingInterval` / `pingTimeout` — the defaults (25s / 20s) drop a
+    //   client whose pong is merely late, and a drop here is expensive: full
+    //   re-handshake, re-auth, C2S_RECONNECT, whole-state resync. On a
+    //   high-latency mobile link over the Pacific those false drops were a
+    //   real source of mid-game stalls. 20s ping + 30s grace tolerates a
+    //   transient spike without giving up on a genuinely-gone client for too
+    //   long (RECONNECT_GRACE_SECONDS still bounds the in-game side).
+    transports: ['websocket', 'polling'],
+    pingInterval: 20000,
+    pingTimeout: 30000,
+  });
 
   if (!jwtSecret) {
     return io;

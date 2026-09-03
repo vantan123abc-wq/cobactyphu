@@ -485,9 +485,15 @@ test('C2S_GAME_ACTION auth error: a player not in the room is rejected with NOT_
 });
 
 test('C2S_GAME_ACTION: a room that is not in_progress is rejected with ROOM_NOT_IN_PROGRESS', async () => {
+  // PERF change 2026-09-03: the handler no longer re-fetches the room record
+  // on every action — it trusts the hot in-memory GameState, and only falls
+  // back to getRoomById on a cold miss. So this scenario (room still in
+  // ready_check) can only be reached with NO hot state, which is also the
+  // only way it can actually occur: startGame writes the room status and the
+  // game state together, so hot state + a pre-start room status is not a
+  // real combination. No setGameState() here.
   const room = { ...buildAuctionRoom(), status: 'ready_check' };
   const roomRepository = fakeGameRoomRepository({ 'room-1': room });
-  setGameState('room-1', buildAuctionGameState());
   const socket = mockSocket();
   socket.user = { id: 'user-alice' };
 
@@ -495,6 +501,35 @@ test('C2S_GAME_ACTION: a room that is not in_progress is rejected with ROOM_NOT_
   await socket._trigger('C2S_GAME_ACTION', { roomId: 'room-1', actionType: 'PLACE_BID', payload: { amount: 250 } });
 
   assert.equal(socket._emitted[0].payload.errorCode, 'ROOM_NOT_IN_PROGRESS');
+});
+
+test('C2S_GAME_ACTION: with hot game state, the room record is NOT re-fetched (perf, 2026-09-03)', async () => {
+  // The per-action getRoomById was the biggest latency source in the
+  // deployed game (two sequential cross-region Supabase queries before the
+  // engine ran). This pins that it is gone on the hot path.
+  let getRoomByIdCalls = 0;
+  const roomRepository = {
+    getRoomById: async (_s, id) => {
+      getRoomByIdCalls += 1;
+      return structuredClone(buildAuctionRoom());
+    },
+  };
+  setGameState('room-1', buildAuctionGameState());
+  const io = fakeIo();
+  const socket = mockSocket();
+  socket.user = { id: 'user-bob' };
+
+  handleGameAction(io, socket, roomRepository, undefined);
+  await socket._trigger('C2S_GAME_ACTION', {
+    roomId: 'room-1',
+    actionType: 'PLACE_BID',
+    payload: { amount: 250 },
+    clientActionId: 'perf-1',
+  });
+
+  assert.equal(getRoomByIdCalls, 0, 'getRoomById must not run when hot game state is present');
+  assert.equal(io._broadcasts.length, 1);
+  assert.equal(io._broadcasts[0].payload.gameState.pendingAuction.currentBid, 250);
 });
 
 test('C2S_GAME_ACTION: a room in_progress with no hot-loaded or durable game state is rejected with GAME_NOT_FOUND', async () => {

@@ -96,7 +96,8 @@ export const HOTEL_SUPPLY_TOTAL = 12;
  * @property {{percent: number, max: number}|null} nextRentDiscount - companion to nextBuildDiscount: C12 option C ("giảm 50%, tối đa $150") — consumed by the *next* rent payment this player owes as the payer (settleDebt's own PAYING_RENT-derived call, not GameState.rentModifierPercent's unrelated owner-side global modifier), clearing back to null immediately after. `max` caps the absolute discount amount, not the resulting rent.
  * @property {string[]} inventory - 2026-08-27 (Card Inventory system): IDs of keepable event cards this player holds in their hand to play later.
  * @property {string[]} movementHand - [ASYMMETRIC] Danh sách thẻ di chuyển trên tay (tối đa 3 thẻ)
- * @property {string[]} activePerks - [ASYMMETRIC] Các Lõi Công Nghệ / Nội tại nhóm màu đang có
+ * @property {string[]} activePerks - [ASYMMETRIC] Legacy field, no longer read by any engine code. Synergies are DERIVED from holdings (engine/synergyEngine.js) rather than stored, so a trade/auction/buyout/bankruptcy can never leave a stale perk behind. Kept only so existing snapshots deserialize.
+ * @property {{viewerId: string, untilRound: number, scope: 'FULL'|'NEXT_CARD'}[]} handRevealedTo - [ASYMMETRIC] DENIAL (§3.1): who may see this player's movementHand, and until which roundNumber. INERT until socketServer.js redacts per recipient — today every hand is broadcast to everyone regardless.
  */
 
 /**
@@ -137,6 +138,7 @@ export function createPlayerGameState(fields) {
     inventory: fields.inventory ?? [],
     movementHand: fields.movementHand ?? [],
     activePerks: fields.activePerks ?? [],
+    handRevealedTo: fields.handRevealedTo ?? [],
   };
 }
 
