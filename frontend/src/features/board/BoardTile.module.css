@@ -84,6 +84,29 @@
   z-index: 1;
 }
 
+/* PLACE_TRAP target-picking (ASYMMETRIC) — every tile gets this while a trap
+   is being aimed (GameBoard.jsx's trapDraft), a deliberately distinct look
+   from .selected/.clickable: "pick ANY tile for a hazard" reads as a
+   different kind of click than "open this property's own details", so it
+   needs its own affordance rather than reusing the property-select outline. */
+.targetable {
+  cursor: crosshair;
+  outline: 2px dashed #ff4d4f;
+  outline-offset: -2px;
+  animation: targetablePulse 1.1s ease-in-out infinite;
+  z-index: 1;
+}
+
+@keyframes targetablePulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(255, 77, 79, 0);
+  }
+}
+
 /* Permanent price readout for an OWNED tile (2026-08-25, user request:
    owned tiles show their price "ở đuôi ô" — at the tile's tail end).
    REVISED same day: first built as a hover/touch-only reveal (opacity 0,

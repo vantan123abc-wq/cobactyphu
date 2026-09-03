@@ -40,6 +40,7 @@ const MAX_UPGRADE_LEVEL = 5
  * @param {object} [props.owner] - PlayerGameState of this tile's property owner, or null/undefined when unowned or not ownable at all.
  * @param {number} [props.upgradeLevel] - property.upgradeLevel (0 = no houses, 1-4 = houses, 5 = hotel); 0 when unowned/not ownable. `mortgaged` is deliberately not shown here — PropertyManager.jsx (opened by selecting the tile) owns that level of detail.
  * @param {string} [props.rentPreview] - what landing on this tile costs right now (GameBoard.jsx's rentPreview.js#rentLabel — "$130", "10× xúc xắc", "Cầm cố", ...), only meaningful once owned. Deliberately the RENT, not `tile.price` — a real user correction, 2026-08-25: "số tiền này là số tiền khi giẫm vào phải trả mà" (this number is what you pay when you land on it) — the purchase price stops being the relevant figure the instant a tile is owned.
+ * @param {boolean} [props.isTargetable] - PLACE_TRAP target-picking (ASYMMETRIC, GameBoard.jsx's own trapDraft) — true for EVERY tile while a trap is being aimed, not just the ones with a Property row (trapEngine.js's validateTrapPlacement has no ownership restriction). Drives a distinct crosshair affordance so "pick any tile" reads differently from the normal "select this property" click.
  * @param {object} [props.style] - grid placement, set by GameBoard
  */
 /**
@@ -68,7 +69,7 @@ function Building({ kind, color }) {
   );
 }
 
-export default function BoardTile({ tile, isCorner, edge, isSelected, onClick, owner, upgradeLevel = 0, rentPreview, style }) {
+export default function BoardTile({ tile, isCorner, edge, isSelected, onClick, isTargetable, owner, upgradeLevel = 0, rentPreview, style }) {
   const groupColor = tile.groupId ? GROUP_COLORS[tile.groupId] : undefined;
   const bandColor = CHANCE_FORTUNE_COLOR[tile.tileType] ?? groupColor;
   const ownerColor = owner ? playerColor(owner) : null;
@@ -89,7 +90,7 @@ export default function BoardTile({ tile, isCorner, edge, isSelected, onClick, o
 
   return (
     <div
-      className={`${styles.tile} ${styles[edge] ?? ''} ${isCorner ? styles.corner : ''} ${isSelected ? styles.selected : ''} ${onClick ? styles.clickable : ''}`}
+      className={`${styles.tile} ${styles[edge] ?? ''} ${isCorner ? styles.corner : ''} ${isSelected ? styles.selected : ''} ${onClick ? styles.clickable : ''} ${isTargetable ? styles.targetable : ''}`}
       style={{
         ...style,
         ...(ownerColor ? { '--owner-color': ownerColor } : {}),

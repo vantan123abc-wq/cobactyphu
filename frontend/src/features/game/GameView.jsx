@@ -7,6 +7,7 @@ import PlayersPanel from './PlayersPanel'
 import Ledger from './Ledger'
 import MyPortfolio from './MyPortfolio'
 import GameControls from './GameControls'
+import MovementHandControls from './MovementHandControls'
 import ForfeitButton from './ForfeitButton'
 import PropertyActionDrawer from './PropertyActionDrawer'
 import FlashAuction from './FlashAuction'
@@ -103,6 +104,11 @@ export default function GameView() {
             <GameBoard />
           </div>
           <GameControls />
+          {/* PLAYING_CARD (ASYMMETRIC only) — self-gates, docks to the same
+              bottom-of-board spot GameControls' own ROLLING button occupies
+              for CLASSIC. The two are mutually exclusive by ruleset, so
+              they never render at once. */}
+          <MovementHandControls />
         </div>
 
         <aside className={styles.right}>

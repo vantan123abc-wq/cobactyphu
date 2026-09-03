@@ -275,6 +275,8 @@ export default function GameBoard() {
   const currentTurnIndex = useGameStore((s) => s.currentGameState?.currentTurnIndex)
   const selectedPropertyId = useGameStore((s) => s.selectedPropertyId)
   const selectProperty = useGameStore((s) => s.selectProperty)
+  const trapDraft = useGameStore((s) => s.trapDraft)
+  const setTrapDraft = useGameStore((s) => s.setTrapDraft)
   const boardZoom = useGameStore((s) => s.boardZoom)
   const boardSpin = useGameStore((s) => s.boardSpin)
   const boardTilt = useGameStore((s) => s.boardTilt)
@@ -500,9 +502,19 @@ export default function GameBoard() {
           '--vfactor': vfactor,
         }}
       >
+        {/* PLACE_TRAP target-picking (ASYMMETRIC, trapDraft in gameStore.js —
+            set by MovementHandControls.jsx's own "Đặt Bẫy" button). A trap
+            can land on ANY tile position, not only ones with a matching
+            Property row (trapEngine.js's validateTrapPlacement has no such
+            restriction — go/tax/chance are all legal targets), so this
+            overrides the normal property-select onClick for every tile while
+            active rather than only extending it to the already-clickable
+            subset. */}
         {tiles.map((tile) => {
           const { row, col } = computeGridPosition(tile.position, edgeLength)
           const property = propertyByBoardTileId.get(tile.id) ?? null
+          const isTargetingTrap = trapDraft != null && trapDraft.targetPosition == null
+          const trapTileOnClick = isTargetingTrap ? () => setTrapDraft({ ...trapDraft, targetPosition: tile.position }) : null
           // Ownership/houses shown directly on the tile (2026-08-22, user
           // request) — resolved once here (property.ownerId -> the matching
           // PlayerGameState, same id-space every other ownerId lookup in
@@ -528,8 +540,9 @@ export default function GameBoard() {
               tile={tile}
               isCorner={CORNER_TYPES.has(tile.tileType)}
               edge={computeEdge(tile.position, edgeLength)}
-              isSelected={property != null && property.id === selectedPropertyId}
-              onClick={property ? () => selectProperty(property.id) : undefined}
+              isSelected={!isTargetingTrap && property != null && property.id === selectedPropertyId}
+              onClick={trapTileOnClick ?? (property ? () => selectProperty(property.id) : undefined)}
+              isTargetable={isTargetingTrap}
               owner={owner}
               upgradeLevel={property?.upgradeLevel ?? 0}
               rentPreview={rentPreview}

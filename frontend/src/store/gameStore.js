@@ -48,6 +48,18 @@ export const useGameStore = create((set) => ({
   selectedPropertyId: null, // properties.id (game-scoped ownership row) of the board tile the local player last clicked — P11-T09, PropertyManager.jsx's data source
   tradeDraftTargetId: null, // PlayerGameState.id of the opponent a fresh trade proposal is being drafted against — P11-T10, TradeWindow.jsx. Only meaningful while no real Trade in gameState.pendingTrades involves the local player yet; TradeWindow.jsx clears this itself once PROPOSE_TRADE's real trade shows up server-side
 
+  // PLACE_TRAP's own two-step flow (ASYMMETRIC, Draft Phase's HUD sibling —
+  // MovementHandControls.jsx / GameBoard.jsx). `{ cardId, targetPosition }` —
+  // `targetPosition` starts null (still picking a tile: GameBoard.jsx makes
+  // every tile clickable and highlighted while this is non-null with a null
+  // targetPosition) and is filled in by clicking a real board tile, at which
+  // point MovementHandControls.jsx shows the ROADBLOCK/TOLL_BOOTH choice and
+  // fires PLACE_TRAP. null the rest of the time (not targeting at all).
+  // Cross-component UI-only state, same standing as selectedPropertyId/
+  // tradeDraftTargetId above — never sent to the server as-is, only used to
+  // build one real PLACE_TRAP payload once a type is chosen.
+  trapDraft: null,
+
   // Board camera (2026-08-22) — zoom/rotation the player controls via
   // BoardCamera.jsx (features/board/), read by GameBoard.jsx to compute the
   // real transform + its own margin reconciliation (see that file's own
@@ -199,6 +211,8 @@ export const useGameStore = create((set) => ({
   // does; TradeWindow.jsx's own close/cancel button calls this with null.
   setTradeDraftTargetId: (tradeDraftTargetId) => set({ tradeDraftTargetId }),
 
+  setTrapDraft: (trapDraft) => set({ trapDraft }),
+
   // Called by GameOverScreen's "Return to lobby" button after a finished match.
   // Clears all in-game state so App.jsx's conditional render drops back to
   // LobbyDiagnostic (roomState === null → no room → lobby screen). The socket
@@ -218,6 +232,7 @@ export const useGameStore = create((set) => ({
       lastError: null,
       selectedPropertyId: null,
       tradeDraftTargetId: null,
+      trapDraft: null,
       transactionLog: [],
       eventCardLog: [],
       boardZoom: 1,

@@ -7,6 +7,7 @@ import { zodiacEmoji } from '../board/zodiac'
 import TileIcon from '../board/TileIcon'
 import { playerNetWorth } from './netWorthMirror'
 import { TRANSACTION_ICON } from './ledgerFormat'
+import { MOVEMENT_CARDS, cardLabel, HIDDEN_CARD } from './movementCards'
 import styles from './PlayersPanel.module.css'
 
 // How long a floating money-change indicator stays on screen. Deliberately
@@ -187,6 +188,38 @@ export default function PlayersPanel() {
     return held
   }
 
+  // ASYMMETRIC's own hand row (2026-09-03) — same "every player's card here,
+  // visible to the whole table" reasoning heldEffects() just above already
+  // established for jailFreeCards/nextBuildDiscount/nextRentDiscount, but for
+  // movementHand specifically the CONTENT is usually secret: an opponent's
+  // array already arrives pre-redacted by the server (engine/
+  // stateRedaction.js's maskGameState — real cardIds for MY OWN hand, or for
+  // anyone DENIAL has revealed to ME; HIDDEN_CARD sentinels otherwise), so
+  // this only ever renders what this client was actually sent — there is no
+  // separate "is this revealed to me" check needed here, the array's own
+  // per-slot values already say so directly. Array LENGTH is never redacted
+  // either way (movementHand.length still reads correctly for a face-down
+  // hand), which is exactly what lets a face-down row still show the right
+  // number of card backs.
+  const handChips = (p) => {
+    const hand = p.movementHand ?? []
+    const isMine = p.playerId === user.id
+    return hand.map((cardId, i) => {
+      const isHidden = cardId === HIDDEN_CARD
+      return {
+        key: `${p.id}-hand-${i}`,
+        hidden: isHidden,
+        // A real cardId on someone else's row can ONLY mean DENIAL revealed
+        // it to me (backend never sends my own opponent's real hand any
+        // other way) — flagged distinctly so it reads as "camera Thượng
+        // Lưu", not confused with a normal own-hand display.
+        revealedByDenial: !isMine && !isHidden,
+        label: isHidden ? '🂠' : cardLabel(cardId),
+        title: isHidden ? 'Thẻ di chuyển (úp)' : (MOVEMENT_CARDS[cardId]?.description ?? cardId),
+      }
+    })
+  }
+
   return (
     <div className={styles.panel}>
       <h2 className={styles.heading}>Người Chơi</h2>
@@ -280,6 +313,21 @@ export default function PlayersPanel() {
                     <span key={h.key} className={styles.heldChip} title={h.title}>
                       <span className={styles.heldIcon}>{h.icon}</span>
                       {h.text}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {gameState.ruleset === 'ASYMMETRIC' && p.movementHand?.length > 0 && (
+                <div className={styles.handRow}>
+                  {handChips(p).map((c) => (
+                    <span
+                      key={c.key}
+                      className={c.revealedByDenial ? `${styles.handChip} ${styles.handChipRevealed}` : styles.handChip}
+                      title={c.revealedByDenial ? `${c.title} — bị lộ do Thượng Lưu` : c.title}
+                    >
+                      {c.revealedByDenial && '🔍 '}
+                      {c.label}
                     </span>
                   ))}
                 </div>

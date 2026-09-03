@@ -48,6 +48,12 @@ const HANDLED_PHASES = [
   // line below is invisible either way — this entry only suppresses the
   // redundant fallback-text message from also existing in the DOM.
   'DRAFTING_ACTIVE',
+  // PLAYING_CARD (ASYMMETRIC only) → MovementHandControls.jsx, mounted as a
+  // sibling in GameView.jsx's .center column, docked to the same
+  // bottom-of-board spot this component's own ROLLING button occupies —
+  // the two are mutually exclusive by ruleset so there is no visual overlap
+  // to worry about, this entry just suppresses the fallback-text duplicate.
+  'PLAYING_CARD',
 ]
 
 // P11-T10: a small always-visible "start a trade" row, added here rather

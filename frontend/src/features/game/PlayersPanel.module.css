@@ -199,6 +199,35 @@
   line-height: 1;
 }
 
+/* ASYMMETRIC's per-player hand row — face-down by default (.handChip alone),
+   a distinct warning treatment when DENIAL has revealed real card content
+   (.handChipRevealed added on top), same "table-wide visible info" spot
+   .heldEffects/.heldChip already established just above. */
+.handRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-left: 44px;
+}
+
+.handChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--et-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--et-text);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.handChipRevealed {
+  border-color: #ff4d4f;
+  background: rgba(255, 77, 79, 0.14);
+  color: #ff8a8c;
+}
+
 .propertyDot {
   width: 14px;
   height: 14px;

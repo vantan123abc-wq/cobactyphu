@@ -1,0 +1,180 @@
+/* Docked to the bottom of the board, same positioning strategy as
+   GameControls.module.css's own .controls — the two are mutually exclusive
+   by ruleset (ROLLING is CLASSIC-only, PLAYING_CARD is ASYMMETRIC-only, a
+   match is always exactly one or the other) so there is never a stacking
+   conflict, but this occupies the identical visual role GameControls'
+   own bottom bar plays for CLASSIC's dice button. */
+.panel {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 16px 24px;
+  box-sizing: border-box;
+  background: linear-gradient(to top, rgba(11, 18, 32, 0.95) 45%, transparent);
+}
+
+.panel > * {
+  pointer-events: auto;
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--et-gold);
+}
+
+.handRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 560px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 150px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--et-border);
+  background: rgba(22, 30, 48, 0.85);
+  box-sizing: border-box;
+}
+
+.cardSteps {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--et-gold);
+}
+
+.cardDesc {
+  font-size: 11px;
+  color: var(--et-text);
+  text-align: center;
+  min-height: 28px;
+}
+
+.cardActions {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+}
+
+.playButton {
+  flex: 1;
+  padding: 8px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(180deg, #f5c451, #e8a317);
+  color: #241a02;
+  cursor: pointer;
+}
+
+.trapButton {
+  flex: 1;
+  padding: 8px 6px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  border: 1px solid #ff4d4f;
+  background: transparent;
+  color: #ff4d4f;
+  cursor: pointer;
+}
+
+.playButton:disabled,
+.trapButton:disabled,
+.trapTypeButton:disabled,
+.cancelButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.playButton:not(:disabled):hover,
+.trapButton:not(:disabled):hover {
+  filter: brightness(1.1);
+}
+
+/* Targeting sub-view — "bấm vào một ô trên bàn cờ" hint, while
+   GameBoard.jsx's own .targetable pulse (BoardTile.module.css) does the
+   rest of the work of drawing attention to the board itself. */
+.targetingHint {
+  margin: 0;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: rgba(255, 77, 79, 0.16);
+  color: #ff4d4f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.trapTypeRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 480px;
+}
+
+.trapTypeButton {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--et-border);
+  background: rgba(22, 30, 48, 0.9);
+  color: var(--et-text);
+  cursor: pointer;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.trapTypeButton:not(:disabled):hover {
+  border-color: var(--et-gold);
+}
+
+.trapTypeName {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--et-gold);
+}
+
+.trapTypeDesc {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.cancelButton {
+  padding: 8px 20px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 999px;
+  border: 1px solid var(--et-border);
+  background: transparent;
+  color: var(--et-text);
+  cursor: pointer;
+}
+
+.cancelButton:not(:disabled):hover {
+  background: rgba(255, 255, 255, 0.08);
+}
