@@ -11,7 +11,8 @@ const T = (position, groupId, tileType = 'property') =>
 // the real small board; everything else here is filler so `position` lookups
 // resolve for all 36 tiles.
 const BOARD = Array.from({ length: 36 }, (_, i) => {
-  const groups = { 1: 'red', 3: 'red', 5: 'cyan', 7: 'cyan', 8: 'cyan', 28: 'blue', 29: 'blue', 31: 'blue', 33: 'darkblue', 35: 'darkblue' };
+  const groups = { 1: 'red', 3: 'red', 5: 'cyan', 7: 'cyan', 8: 'cyan', 20: 'purple', 28: 'blue', 29: 'blue', 31: 'blue', 33: 'darkblue', 35: 'darkblue' };
+  if (i === 10 || i === 14) return T(i, null, 'transport');
   return T(i, groups[i] ?? null, groups[i] ? 'property' : 'free_parking');
 });
 
@@ -100,4 +101,22 @@ test('step loss cannot spin the loop forever', () => {
   const r = resolveMovement(state, 'p1', 9, 1, 36, { boardTiles: BOARD });
   assert.ok(r.newPosition >= 0 && r.newPosition < 36);
   assert.ok(r.stepsLost > 0);
+});
+
+test('MOBILITY NUDGE uses the LIVE crossing position for every tile in a multi-tile walk, not the move\'s starting tile', () => {
+  // p2 owns station ô14 and property ô20. p1 starts a long move at ô0 (far
+  // from both), walking through ô14 mid-route on the way to ô25.
+  //
+  // This is the regression case for the fromPosition bug found while writing
+  // synergyEngine's own tests: NUDGE was computed from p1's move-start
+  // position (ô0) for every crossing, rather than from ô14 — the tile
+  // actually being crossed — which is a different geometry problem entirely
+  // and would silently mis-shove on every multi-tile move.
+  const state = asym(0, [own(14, 'p2'), own(20, 'p2')]);
+  const r = resolveMovement(state, 'p1', 25, 1, 36, { boardTiles: BOARD });
+  // Forward distance from the crossing (ô14) to ô20 is 6, shrinking as the
+  // walk continues forward, so the live-position shove is +1. Landing
+  // position reflects that extra step (25 steps + 1 nudge = 26 from ô0 = ô26,
+  // not ô25).
+  assert.strictEqual(r.newPosition, 26);
 });

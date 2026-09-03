@@ -1256,9 +1256,22 @@ function resolveLanding(gameState, boardTiles, playerId, diceTotal, now) {
       const rider = gameState.ruleset === 'ASYMMETRIC'
         ? landingEffect(stateWithDiscountConsumed, boardTiles, tile, playerId)
         : null;
-      const stateAfterDiscountConsumed = rider
+      const stateAfterDiscountConsumed = rider && rider.type !== 'TELEPORT'
         ? applyCardEffect(stateWithDiscountConsumed, rider, playerId)
         : stateWithDiscountConsumed;
+
+      // MOBILITY's forced teleport is handled AFTER the station's own rent is
+      // paid rather than instead of it — the victim really did stop on the
+      // station, and the throw is what happens next. Both charges are
+      // intended: this is the payoff for the Ambush build (all stations plus
+      // a developed set), and the two together are what make it a finisher.
+      //
+      // Recursion is bounded structurally, not by a counter: teleportTo()
+      // relocates onto a `property` tile only (synergyEngine excludes
+      // stations as destinations), and a property landing can never produce
+      // another TELEPORT, so the second resolveLanding below is always the
+      // last one.
+      const teleport = rider?.type === 'TELEPORT' ? rider : null;
 
       // Rent Risk Choice, REVISED 2026-08-25 — real user correction (see
       // BOARD_SPECIFICATION.md's own entry for the full before/after and the
@@ -1301,16 +1314,17 @@ function resolveLanding(gameState, boardTiles, playerId, diceTotal, now) {
       const paidInCash = settled.transactions.some(
         (t) => t.transactionType === 'rent' && t.fromGamePlayerId === playerId && t.toGamePlayerId === owner.id
       );
-      return {
-        gameState: {
-          ...settled.gameState,
-          pendingHostileBuyoutPropertyId: property.id,
-          pendingRentGamble: paidInCash
-            ? { propertyId: property.id, ownerId: owner.id, payerId: playerId, amount: rentAmount }
-            : settled.gameState.pendingRentGamble,
-        },
-        transactions: settled.transactions,
+      const afterRent = {
+        ...settled.gameState,
+        pendingHostileBuyoutPropertyId: property.id,
+        pendingRentGamble: paidInCash
+          ? { propertyId: property.id, ownerId: owner.id, payerId: playerId, amount: rentAmount }
+          : settled.gameState.pendingRentGamble,
       };
+
+      return teleport
+        ? applyTeleport(afterRent, boardTiles, playerId, teleport, now, settled.transactions)
+        : { gameState: afterRent, transactions: settled.transactions };
     }
 
     case 'PAYING_TAX': {
@@ -1636,6 +1650,34 @@ function applyCardEffect(gameState, effect, victimId) {
   }
 
   return gameState;
+}
+
+/**
+ * MOBILITY's forced teleport (ASYMMETRIC_MODE_SPEC.md §2.2, top tier).
+ * Relocates `victimId` onto `effect.targetPosition` and resolves that landing
+ * for real, so the victim pays whatever is owed there.
+ *
+ * Deliberately NOT a movement: no tile is walked over, so no pass-through
+ * fires along the way and — like Go To Jail, and unlike an "advance to"
+ * card — no PASS_GO salary is paid. A player thrown backwards past GO by an
+ * opponent should not be paid $200 for the privilege.
+ *
+ * Terminates in one extra step by construction: synergyEngine only ever
+ * targets a `property` tile, and a property landing cannot itself produce a
+ * TELEPORT, so the resolveLanding below can never re-enter here.
+ */
+function applyTeleport(gameState, boardTiles, victimId, effect, now, priorTransactions) {
+  const victim = gameState.players.find((p) => p.id === victimId);
+  if (!victim || victim.currentPosition === effect.targetPosition) {
+    return { gameState, transactions: priorTransactions };
+  }
+
+  const relocated = replacePlayer(gameState, { ...victim, currentPosition: effect.targetPosition });
+  const landing = resolveLanding(relocated, boardTiles, victimId, 0, now);
+  return {
+    gameState: landing.gameState,
+    transactions: [...priorTransactions, ...landing.transactions],
+  };
 }
 
 function handlePlayMovementCard(gameState, boardTiles, action, now) {

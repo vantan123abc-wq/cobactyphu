@@ -1604,8 +1604,13 @@ test('C2S_RECONNECT reports the currently-scheduled deadlineAt without resetting
   });
   const originalDeadline = io._broadcasts[0].payload.deadlineAt;
 
-  // Time passes (but short of the 15s deadline) before Alice reconnects.
-  mock.timers.tick(5000);
+  // Time passes (but short of the deadline) before Alice reconnects. Half the
+  // window, not a hardcoded 5000ms — the auction rework (503a83f) shrank
+  // FLASH_AUCTION_ACTIVE from 15s to 5s and left this at a fixed 5000ms,
+  // which no longer left any margin before the deadline and made the timer
+  // fire (or race) before Alice ever reconnected.
+  const halfWindowMs = (TIMER_DURATIONS_SECONDS.FLASH_AUCTION_ACTIVE * 1000) / 2;
+  mock.timers.tick(halfWindowMs);
 
   const aliceSocket = mockSocket();
   aliceSocket.user = { id: 'user-alice' };
@@ -1615,10 +1620,11 @@ test('C2S_RECONNECT reports the currently-scheduled deadlineAt without resetting
   const resync = aliceSocket._emitted.find((e) => e.event === 'S2C_STATE_UPDATE');
   assert.equal(resync.payload.deadlineAt, originalDeadline); // unchanged — GAME_STATE_MACHINE.md §5/§7
 
-  // The remaining ~10s still elapses on the *original* schedule — if
+  // The remaining half still elapses on the *original* schedule — if
   // reconnect had called start() again, this tick alone wouldn't reach a
-  // freshly-computed (now + 15s) deadline yet, and nothing would fire.
-  mock.timers.tick(TIMER_DURATIONS_SECONDS.FLASH_AUCTION_ACTIVE * 1000 - 5000);
+  // freshly-computed (now + FLASH_AUCTION_ACTIVE) deadline yet, and nothing
+  // would fire.
+  mock.timers.tick(TIMER_DURATIONS_SECONDS.FLASH_AUCTION_ACTIVE * 1000 - halfWindowMs);
   await flushMicrotasks();
 
   assert.equal(io._broadcasts.length, 2); // the original timer's own AUCTION_TIMEOUT firing

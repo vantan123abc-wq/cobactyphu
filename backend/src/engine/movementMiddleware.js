@@ -83,7 +83,12 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
     const tile = boardTiles.find((t) => t.position === currentPos);
     if (!tile) continue;
 
-    const effect = passThroughEffect(gameState, boardTiles, tile, playerId);
+    // Pass `currentPos` explicitly — it's the live position within THIS walk
+    // (the tile just crossed), not gameState's own player.currentPosition
+    // (which stays frozen at the move's starting tile until the whole walk
+    // finishes). MOBILITY's NUDGE needs to know where the crosser stands at
+    // the moment of crossing; every other effect ignores the extra argument.
+    const effect = passThroughEffect(gameState, boardTiles, tile, playerId, currentPos);
     if (!effect) continue;
 
     if (effect.type === 'STEP_LOSS') {
@@ -93,6 +98,15 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
       // it — ASYMMETRIC_MODE_SPEC.md §2.1's "phải dừng lại sớm hơn dự tính
       // bên trong vùng kiểm soát". The tile therefore becomes a landing and
       // must not also be billed as a crossing, same rule as the break above.
+      if (remaining <= 0) break;
+    } else if (effect.type === 'NUDGE') {
+      // A shove changes how far the player still has to walk, so it can pull
+      // them up short (-1) or carry them one tile past where they aimed (+1).
+      // Deliberately applied to `remaining` rather than to the final
+      // position: the extra/skipped tile is genuinely travelled, so it can
+      // trigger the pass-through effects on it like any other crossing.
+      remaining += effect.amount;
+      stepsLost -= effect.amount;
       if (remaining <= 0) break;
     } else if (effect.type === 'TOLL') {
       tolls.push({ ownerId: effect.ownerId, amount: effect.amount, tileId: tile.id });

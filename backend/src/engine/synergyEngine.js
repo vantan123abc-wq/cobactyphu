@@ -111,9 +111,20 @@ export function synergyTier(gameState, boardTiles, playerId, archetype) {
  * reaching into, and both are still open design questions at hand size 2.
  * Adding them means adding a case here, nothing else.
  *
- * @returns {{type: 'STEP_LOSS', amount: number}|{type: 'TOLL', amount: number, ownerId: string}|null}
+ * `fromPosition` is the crosser's position AT THIS TILE — i.e. `tile.position`
+ * itself, for any effect (like MOBILITY's NUDGE) that needs to know where the
+ * crosser currently stands mid-walk. It must NOT be read off
+ * `gameState.players[...].currentPosition`: that field is the player's
+ * position at the START of the whole move (movementMiddleware never mutates
+ * it until the walk finishes), so for anything beyond a 1-tile step it would
+ * silently point at the wrong tile for every crossing after the first.
+ * Callers other than movementMiddleware's own walk loop (tests, mainly) may
+ * omit it; it then falls back to that same stale gameState value, which is
+ * only correct for a single-tile move.
+ *
+ * @returns {{type: 'STEP_LOSS', amount: number}|{type: 'TOLL', amount: number, ownerId: string}|{type: 'NUDGE', amount: number, ownerId: string}|null}
  */
-export function passThroughEffect(gameState, boardTiles, tile, crosserId) {
+export function passThroughEffect(gameState, boardTiles, tile, crosserId, fromPosition) {
   const property = gameState.properties.find((p) => p.boardTileId === tile.id);
   if (!property || !property.ownerId || property.ownerId === crosserId || property.mortgaged) {
     return null;
@@ -168,7 +179,53 @@ export function passThroughEffect(gameState, boardTiles, tile, crosserId) {
     return { type: 'REVEAL_NEXT_CARD', ownerId: property.ownerId };
   }
 
+  // MOBILITY (§2.2): a 1-step shove, aimed automatically at whichever of the
+  // station owner's tiles the victim is closest to. The spec's own wording is
+  // "tự động hoàn toàn, không popup hỏi ý kiến" — and that is not only a UX
+  // preference. A prompt here would mean pausing movement resolution to wait
+  // on a DIFFERENT player, which needs a new phase with its own timer, in a
+  // ruleset whose one phase without a timer already froze matches once.
+  //
+  // Automation costs the owner nothing: shoving the victim toward your own
+  // property is what a rational owner picks every time, so resolving it
+  // deterministically removes a decision that was never really a decision.
+  if (archetype === 'MOBILITY') {
+    const crosser = gameState.players.find((p) => p.id === crosserId);
+    const effectiveFrom = fromPosition ?? crosser?.currentPosition ?? tile.position;
+    const direction = nudgeDirection(gameState, boardTiles, property.ownerId, effectiveFrom);
+    return direction === 0 ? null : { type: 'NUDGE', ownerId: property.ownerId, amount: direction };
+  }
+
   return null;
+}
+
+/**
+ * +1 / -1 — which way to shove a victim standing at `fromPosition` so they end
+ * up nearer one of `ownerId`'s tiles. 0 when the owner holds nothing worth
+ * being shoved toward, which makes the whole effect a no-op rather than a
+ * coin flip.
+ */
+function nudgeDirection(gameState, boardTiles, ownerId, fromPosition) {
+  const boardSize = boardTiles.length;
+  if (!boardSize) return 0;
+
+  // Only rentable, developed-or-not PROPERTY tiles are worth aiming at — a
+  // station is the thing doing the shoving and pushing someone onto another
+  // station would just chain shoves.
+  const targets = gameState.properties
+    .filter((p) => p.ownerId === ownerId && !p.mortgaged)
+    .map((p) => boardTiles.find((t) => t.id === p.boardTileId))
+    .filter((t) => t && t.tileType === 'property')
+    .map((t) => t.position);
+  if (targets.length === 0) return 0;
+
+  const forwardDistance = (from, to) => (to - from + boardSize) % boardSize;
+  const best = (offset) => Math.min(...targets.map((t) => forwardDistance((fromPosition + offset + boardSize) % boardSize, t)));
+
+  const ahead = best(1);
+  const behind = best(-1);
+  if (ahead === behind) return 0;
+  return ahead < behind ? 1 : -1;
 }
 
 /**
@@ -199,7 +256,40 @@ export function landingEffect(gameState, boardTiles, tile, landerId) {
     return { type: 'REVEAL_HAND', ownerId: property.ownerId, rounds: 2 };
   }
 
+  // MOBILITY §2.2, top tier only: the forced teleport. The single most lethal
+  // effect in the ruleset, and the only one a victim cannot dodge at all —
+  // which is exactly why it is gated behind holding EVERY station and why the
+  // destination is resolved here rather than prompted for.
+  //
+  // Destination is the owner's highest-rent tile, computed rather than chosen.
+  // Same reasoning as NUDGE: a prompt means blocking movement resolution on
+  // another player's decision, and "throw them at my most expensive hotel" is
+  // what any owner picks anyway. Stations are excluded as destinations, which
+  // also makes a teleport-into-teleport loop structurally impossible.
+  if (archetype === 'MOBILITY' && tier >= 2) {
+    const target = highestRentTileOf(gameState, boardTiles, property.ownerId);
+    return target ? { type: 'TELEPORT', ownerId: property.ownerId, targetPosition: target.position } : null;
+  }
+
   return null;
+}
+
+/**
+ * The owner's most punishing PROPERTY tile to be thrown onto. Ranked by
+ * current rent — upgradeLevel first, then base rent — so a developed cheap
+ * street correctly outranks an empty expensive one.
+ */
+function highestRentTileOf(gameState, boardTiles, ownerId) {
+  const owned = gameState.properties
+    .filter((p) => p.ownerId === ownerId && !p.mortgaged)
+    .map((p) => ({ property: p, tile: boardTiles.find((t) => t.id === p.boardTileId) }))
+    .filter(({ tile }) => tile && tile.tileType === 'property');
+  if (owned.length === 0) return null;
+
+  const rentOf = ({ property, tile }) =>
+    property.upgradeLevel > 0 ? (tile.rentTable?.[property.upgradeLevel - 1] ?? 0) : (tile.baseRent ?? 0);
+
+  return owned.reduce((best, candidate) => (rentOf(candidate) > rentOf(best) ? candidate : best)).tile;
 }
 
 export const EXECUTION_TOLL_PER_LEVEL = 75;

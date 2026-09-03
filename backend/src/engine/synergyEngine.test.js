@@ -110,3 +110,114 @@ test('landingEffect stays silent for CONTROL/EXECUTION — rent is calculateRent
   const state = { ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties: [own(1, 'p2'), own(3, 'p2')] };
   assert.strictEqual(landingEffect(state, board, board[0], 'p1'), null);
 });
+
+test('MOBILITY pass-through is a no-op when the owner holds no property to aim at', () => {
+  const board = [T(14, null, 'transport'), T(32, null, 'transport')];
+  const state = {
+    ruleset: 'ASYMMETRIC',
+    players: [{ id: 'p1', currentPosition: 15 }, { id: 'p2', currentPosition: 0 }],
+    properties: [own(14, 'p2'), own(32, 'p2')],
+  };
+  assert.strictEqual(passThroughEffect(state, board, board[0], 'p1'), null, 'stations alone give nothing to be shoved toward');
+});
+
+test('teleport ranks by CURRENT rent, so a developed cheap street beats an empty expensive one', () => {
+  const board = [
+    T(14, null, 'transport'), T(32, null, 'transport'),
+    createTile({ id: 't1', boardId: 'small', position: 1, tileType: 'property', name: 'T1', groupId: 'red', baseRent: 2, rentTable: [10, 30, 90, 160, 250] }),
+    createTile({ id: 't35', boardId: 'small', position: 35, tileType: 'property', name: 'T35', groupId: 'darkblue', baseRent: 50, rentTable: [200, 600, 1400, 1700, 2000] }),
+  ];
+  const state = {
+    ruleset: 'ASYMMETRIC',
+    players: [{ id: 'p1', currentPosition: 14 }, { id: 'p2', currentPosition: 0 }],
+    // ô1 has a hotel (250); ô35 is bare land (50).
+    properties: [own(14, 'p2'), own(32, 'p2'), own(1, 'p2', { upgradeLevel: 5 }), own(35, 'p2')],
+  };
+  assert.strictEqual(landingEffect(state, board, board[0], 'p1').targetPosition, 1);
+});
+
+test('a station is never a teleport destination, which is what makes the throw non-recursive', () => {
+  const board = [T(14, null, 'transport'), T(32, null, 'transport')];
+  const state = {
+    ruleset: 'ASYMMETRIC',
+    players: [{ id: 'p1', currentPosition: 14 }, { id: 'p2', currentPosition: 0 }],
+    properties: [own(14, 'p2'), own(32, 'p2')],
+  };
+  assert.strictEqual(landingEffect(state, board, board[0], 'p1'), null);
+});
+
+// A full 36-tile board. nudgeDirection measures distance modulo
+// boardTiles.length, so a sparse fixture silently reports a board the size of
+// the fixture — the two tests below failed exactly that way before this.
+const FULL = Array.from({ length: 36 }, (_, i) => {
+  const groups = { 1: 'red', 3: 'red', 5: 'cyan', 7: 'cyan', 8: 'cyan', 10: 'purple', 13: 'purple', 15: 'orange', 17: 'orange', 28: 'blue', 33: 'darkblue', 35: 'darkblue' };
+  if (i === 14 || i === 32) return T(i, null, 'transport');
+  if (!groups[i]) return T(i, null, 'free_parking');
+  return createTile({
+    id: `t${i}`, boardId: 'small', position: i, tileType: 'property', name: `T${i}`,
+    groupId: groups[i], baseRent: 10 * i, rentTable: [10 * i, 30 * i, 90 * i, 160 * i, 250 * i],
+  });
+});
+
+test('MOBILITY pass-through shoves the victim toward the owner\'s nearest property — deterministic, never a prompt', () => {
+  // p2 owns station ô14 and property ô17. Crossing ô14, forward distance to
+  // ô17 only shrinks by continuing forward, so the shove is +1.
+  const state = {
+    ruleset: 'ASYMMETRIC',
+    players: [{ id: 'p1', currentPosition: 0 }, { id: 'p2', currentPosition: 0 }],
+    properties: [own(14, 'p2'), own(17, 'p2')],
+  };
+  assert.deepStrictEqual(passThroughEffect(state, FULL, FULL[14], 'p1', 14), { type: 'NUDGE', ownerId: 'p2', amount: 1 });
+});
+
+test('MOBILITY pass-through shoves backward only when the property sits exactly one tile behind the crossing', () => {
+  // NUDGE only ever trims or extends the CURRENT forward walk by one tile —
+  // it never reverses direction. So amount=-1 only helps when the owner's
+  // property is the tile immediately behind the one being crossed (ô13,
+  // crossing ô14): pulling the walk one tile short lands squarely on it. A
+  // property further back (ô10, tested above as "shoves forward") is
+  // unreachable by trimming one tile either way, so the flatter distance
+  // (continuing forward) wins instead — that is not a bug, it's what a
+  // single-tile shove can and can't do.
+  const state = {
+    ruleset: 'ASYMMETRIC',
+    players: [{ id: 'p1', currentPosition: 0 }, { id: 'p2', currentPosition: 0 }],
+    properties: [own(14, 'p2'), own(13, 'p2')],
+  };
+  // fromPosition = 14 (the station itself, mid-walk) — passed explicitly the
+  // same way movementMiddleware's own walk loop does, not read off
+  // gameState.players[].currentPosition (that field is stale mid-walk; see
+  // passThroughEffect's own doc comment for why the two must never be
+  // conflated — a real bug this test line exists to pin down).
+  assert.deepStrictEqual(passThroughEffect(state, FULL, FULL[14], 'p1', 14), { type: 'NUDGE', ownerId: 'p2', amount: -1 });
+});
+
+test('passThroughEffect must be given the LIVE crossing position, not gameState\'s stale one, for a multi-tile move', () => {
+  // Player started this move at ô0 (gameState.players[].currentPosition) and
+  // is now mid-walk, currently crossing ô14. Calling without fromPosition
+  // falls back to the stale ô0 — wrong tile entirely — and must not be
+  // confused with the correct, explicit ô14 the walk loop actually passes.
+  const state = {
+    ruleset: 'ASYMMETRIC',
+    players: [{ id: 'p1', currentPosition: 0 }, { id: 'p2', currentPosition: 0 }],
+    properties: [own(14, 'p2'), own(13, 'p2')],
+  };
+  const stale = passThroughEffect(state, FULL, FULL[14], 'p1'); // no fromPosition — uses stale ô0
+  const live = passThroughEffect(state, FULL, FULL[14], 'p1', 14); // correct, as movementMiddleware sends it
+  assert.notDeepStrictEqual(stale, live, 'the stale and live reference points must disagree here, or this test proves nothing');
+  assert.deepStrictEqual(live, { type: 'NUDGE', ownerId: 'p2', amount: -1 });
+});
+
+test('MOBILITY teleport needs BOTH stations, and aims at the owner\'s highest-rent tile', () => {
+  const oneStation = {
+    ruleset: 'ASYMMETRIC',
+    players: [{ id: 'p1', currentPosition: 14 }, { id: 'p2', currentPosition: 0 }],
+    properties: [own(14, 'p2'), own(1, 'p2'), own(35, 'p2')],
+  };
+  assert.strictEqual(landingEffect(oneStation, FULL, FULL[14], 'p1'), null, 'tier 1 does not unlock the throw');
+
+  const bothStations = { ...oneStation, properties: [own(14, 'p2'), own(32, 'p2'), own(1, 'p2'), own(35, 'p2')] };
+  assert.deepStrictEqual(landingEffect(bothStations, FULL, FULL[14], 'p1'), {
+    type: 'TELEPORT', ownerId: 'p2', targetPosition: 35,
+  });
+});
