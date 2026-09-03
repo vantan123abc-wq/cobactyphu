@@ -520,3 +520,100 @@
   text-align: center;
   color: var(--text);
 }
+
+/* ── ASYMMETRIC board VFX, 2026-09-04 ("Mặt trận 3") ───────────────────────
+
+   .tokenWarp is the teleport counterpart to .tokenHop above, and swaps in for
+   it (GameBoard.jsx picks one or the other) whenever a player arrived somewhere
+   WITHOUT walking — MOBILITY's forced TELEPORT, Go To Jail, an event-card send.
+   A hop reads as "I just stepped here", which is the wrong story for a piece
+   that materialised, so this fades and scales in on the spot instead.
+
+   Sets transform-style: preserve-3d for exactly the reason .tokenHop's own
+   long comment gives — it sits between .token (preserve-3d) and
+   .tokenStandee's translateZ, and a default `flat` here would silently
+   collapse that Z-separation and paint the cast shadow over the figure's
+   legs. Any future sibling of .tokenHop needs this line too. */
+.tokenWarp {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transform-origin: 50% 100%;
+  animation: tokenWarpIn 0.42s cubic-bezier(0.22, 1.2, 0.4, 1) both;
+}
+
+@keyframes tokenWarpIn {
+  0%   { opacity: 0; transform: translateY(-14px) scale(0.55); }
+  55%  { opacity: 1; }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* "Bẫy phát nổ" — a trap firing, on the tile it fired on. Billboarded with
+   the exact same counter-rotation .fromGhost uses (reading the live --spin/
+   --tilt rather than a hard-coded angle, so it keeps facing the camera at any
+   board orientation), because a flat emoji laid into the board plane at a
+   55deg tilt is close to unreadable. */
+.trapBoom {
+  position: absolute;
+  z-index: 20;
+  font-size: calc(var(--side) * 0.05);
+  line-height: 1;
+  pointer-events: none;
+  transform-origin: 50% 50%;
+  animation: trapBoomPop 2.6s ease-out both;
+}
+
+@keyframes trapBoomPop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotateZ(calc(-45deg - var(--spin, 0deg))) rotateX(calc(-1 * var(--tilt, 55deg))) scale(0.3);
+  }
+  18% {
+    opacity: 1;
+    transform: translate(-50%, -50%) rotateZ(calc(-45deg - var(--spin, 0deg))) rotateX(calc(-1 * var(--tilt, 55deg))) scale(1.35);
+  }
+  32% {
+    transform: translate(-50%, -50%) rotateZ(calc(-45deg - var(--spin, 0deg))) rotateX(calc(-1 * var(--tilt, 55deg))) scale(1);
+  }
+  75% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) rotateZ(calc(-45deg - var(--spin, 0deg))) rotateX(calc(-1 * var(--tilt, 55deg))) scale(1.1);
+  }
+}
+
+/* "N bẫy ẩn" — traps that are live but whose positions this viewer was never
+   told (the server redacts them but preserves the array's length, so the
+   COUNT is genuinely public while the positions are not). Lives in .viewport,
+   outside .board, so the board's own rotateX/rotateZ camera never skews it. */
+.hiddenTrapBadge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 30;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(20, 12, 4, 0.82);
+  border: 1px solid rgba(255, 77, 79, 0.55);
+  color: #ffb4b5;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  pointer-events: none;
+  backdrop-filter: blur(2px);
+}
+
+/* Motion is decoration here — the marker, the count and the piece's final
+   position all still read correctly without it. */
+@media (prefers-reduced-motion: reduce) {
+  .tokenWarp {
+    animation: none;
+  }
+  .trapBoom {
+    animation: trapBoomStill 2.6s linear both;
+  }
+  @keyframes trapBoomStill {
+    0%, 85% { opacity: 1; }
+    100%    { opacity: 0; }
+  }
+}

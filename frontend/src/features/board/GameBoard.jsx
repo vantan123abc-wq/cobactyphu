@@ -7,6 +7,8 @@ import ZodiacFigure from './ZodiacFigure'
 import { clampZoom, tweenSpinTo } from './cameraControls'
 import { playerColor, playerInitial } from './tileVisuals'
 import { ownerTypeCounts, rentLabel, ownsFullGroup } from './rentPreview'
+import { synergyByTileId } from './synergy'
+import { trapLabel } from './traps'
 import styles from './GameBoard.module.css'
 
 // P11-T02/T03/T04 — the board grid. Deliberately NOT hardcoded to the
@@ -188,15 +190,58 @@ function tokensForPosition(position, group, jailPosition) {
 }
 
 const EMPTY_PROPERTIES = [] // same stable-reference reasoning as EMPTY_PLAYERS above
+const EMPTY_TRAPS = [] // ditto — activeTraps/lastTrapHits are both ASYMMETRIC-only and usually absent
+const EMPTY_SYNERGY = new Map() // ditto, for the CLASSIC path that computes no synergies at all
+
+// How long a "bẫy phát nổ" marker stays on the tile it fired on. Long enough
+// that a player who was looking elsewhere still catches it, short enough not
+// to sit on top of the next player's turn.
+const TRAP_BOOM_MS = 2600
+
+/**
+ * Shows the traps that just went off, then clears them.
+ *
+ * Keyed off `lastTrapHitSeq`, never `stateVersion` — the field exists for
+ * exactly this and its own JSDoc (domain/gameState.js) explains why:
+ * stateVersion bumps on every action anyone in the match takes, so an
+ * explosion keyed to it would re-detonate on every later unrelated action.
+ * That is finding #37's bug, already fixed once for the dice.
+ */
+function useTrapBooms(lastTrapHits, lastTrapHitSeq) {
+  const [booms, setBooms] = useState(EMPTY_TRAPS)
+  useEffect(() => {
+    if (!lastTrapHits.length) return
+    setBooms(lastTrapHits)
+    const timer = setTimeout(() => setBooms(EMPTY_TRAPS), TRAP_BOOM_MS)
+    return () => clearTimeout(timer)
+    // lastTrapHits is deliberately NOT a dependency: it is a fresh array on
+    // every single broadcast (a new object off the wire), so depending on it
+    // would restart the timer on every unrelated state update and leave the
+    // marker on screen indefinitely. The seq counter is the real signal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastTrapHitSeq])
+  return booms
+}
 
 /**
  * Tracks each player's *displayed* board position, separate from their real
- * `currentPosition`, and animates it forward one tile at a time for a
- * genuine walk (see this file's own header). Returns
- * `{ displayed, lastSettled }` — `displayed` is what actually renders the
- * token; `lastSettled` is each player's position *before* their most recent
- * move, kept around afterward as the "you were just here" ghost marker
- * (GameBoard.module.css's `.fromGhost`), not cleared until their next move.
+ * `currentPosition`, and animates it one tile at a time for a genuine walk
+ * (see this file's own header). Returns `{ displayed, lastSettled, warpedAt }`
+ * — `displayed` is what actually renders the token; `lastSettled` is each
+ * player's position *before* their most recent move, kept around afterward as
+ * the "you were just here" ghost marker (GameBoard.module.css's
+ * `.fromGhost`), not cleared until their next move; `warpedAt` names the
+ * tile a player last arrived at WITHOUT walking, so the token can fade in
+ * there rather than silently blinking into place.
+ *
+ * Walks BACKWARDS too, as of 2026-09-04 (ASYMMETRIC's BACKUP_3, and MOBILITY's
+ * own backward NUDGE). `lastRoll.total` carries an unsigned distance — the
+ * server does not say which way (see turnMachine.js's handlePlayMovementCard
+ * for why) — so the direction is recovered by testing the real position delta
+ * both ways round. That is unambiguous: the two readings can only agree at
+ * exactly half a lap (18 tiles on Small, 22 on Large), and nothing in either
+ * ruleset moves a player that far in one go (12 on dice, SPRINT_12 plus a
+ * nudge on cards).
  *
  * Hook rules require this to run on every render (including before
  * `staticBoard` has loaded) — callers pass a safe fallback `totalTiles` for
@@ -209,6 +254,7 @@ function useWalkingPositions(players, lastRoll, totalTiles) {
     return m
   })
   const [lastSettled, setLastSettled] = useState(() => new Map())
+  const [warpedAt, setWarpedAt] = useState(() => new Map())
   const displayedRef = useRef(displayed)
   displayedRef.current = displayed
   const timersRef = useRef(new Map()) // playerId -> intervalId, so a real position update mid-walk doesn't start a second, overlapping walk for the same player
@@ -225,23 +271,31 @@ function useWalkingPositions(players, lastRoll, totalTiles) {
       if (from === p.currentPosition || timersRef.current.has(p.id)) continue
 
       const forwardDelta = ((p.currentPosition - from) % totalTiles + totalTiles) % totalTiles
-      const isRealWalk = lastRoll != null && forwardDelta === lastRoll.total
+      const backwardDelta = (totalTiles - forwardDelta) % totalTiles
+      const walkDirection =
+        lastRoll == null ? 0 : forwardDelta === lastRoll.total ? 1 : backwardDelta === lastRoll.total ? -1 : 0
 
       setLastSettled((prev) => new Map(prev).set(p.id, from))
 
-      if (!isRealWalk) {
-        // A teleport (Go To Jail, an event-card move, wrapping past GO in a
-        // way that doesn't match the last roll) — jump straight there, same
-        // as before this slice; GameBoard.module.css's own `.token`
-        // transition still animates the jump, just not stepped.
+      if (walkDirection === 0) {
+        // A teleport (Go To Jail, an event-card move, MOBILITY's own forced
+        // jump, or any move whose distance the server didn't report) — jump
+        // straight there rather than fake-walking a path never taken, same
+        // as before this slice. Recorded in `warpedAt` so the token can fade
+        // in at the destination instead of appearing with no explanation.
+        setWarpedAt((prev) => new Map(prev).set(p.id, p.currentPosition))
         setDisplayed((prev) => new Map(prev).set(p.id, p.currentPosition))
         continue
       }
 
+      // A real walk clears any earlier warp marker for this player, so the
+      // fade-in can never replay on a subsequent ordinary move.
+      setWarpedAt((prev) => (prev.has(p.id) ? new Map([...prev].filter(([id]) => id !== p.id)) : prev))
+
       let step = from
       const target = p.currentPosition
       const intervalId = setInterval(() => {
-        step = (step + 1) % totalTiles
+        step = (step + walkDirection + totalTiles) % totalTiles
         setDisplayed((prev) => new Map(prev).set(p.id, step))
         if (step === target) {
           clearInterval(intervalId)
@@ -264,7 +318,7 @@ function useWalkingPositions(players, lastRoll, totalTiles) {
     []
   )
 
-  return { displayed, lastSettled }
+  return { displayed, lastSettled, warpedAt }
 }
 
 export default function GameBoard() {
@@ -277,6 +331,10 @@ export default function GameBoard() {
   const selectProperty = useGameStore((s) => s.selectProperty)
   const trapDraft = useGameStore((s) => s.trapDraft)
   const setTrapDraft = useGameStore((s) => s.setTrapDraft)
+  const ruleset = useGameStore((s) => s.currentGameState?.ruleset)
+  const activeTraps = useGameStore((s) => s.currentGameState?.activeTraps) ?? EMPTY_TRAPS
+  const lastTrapHits = useGameStore((s) => s.currentGameState?.lastTrapHits) ?? EMPTY_TRAPS
+  const lastTrapHitSeq = useGameStore((s) => s.currentGameState?.lastTrapHitSeq) ?? 0
   const boardZoom = useGameStore((s) => s.boardZoom)
   const boardSpin = useGameStore((s) => s.boardSpin)
   const boardTilt = useGameStore((s) => s.boardTilt)
@@ -305,7 +363,7 @@ export default function GameBoard() {
   // see useWalkingPositions's own header for why this hook must run
   // unconditionally, before the `!staticBoard` early return below.
   const totalTiles = staticBoard?.tiles?.length || 40
-  const { displayed: displayedPositions, lastSettled } = useWalkingPositions(players, lastRoll, totalTiles)
+  const { displayed: displayedPositions, lastSettled, warpedAt } = useWalkingPositions(players, lastRoll, totalTiles)
 
   const propertyByBoardTileId = useMemo(() => {
     const map = new Map()
@@ -328,6 +386,33 @@ export default function GameBoard() {
     }
     return map
   }, [players, properties, staticBoard])
+
+  // Which tiles are currently POWERING a live synergy, and at what tier
+  // (synergy.js — a mirror of backend/src/engine/synergyEngine.js). Computed
+  // once per render, not per tile: a tier belongs to the OWNER, so every tile
+  // one owner holds in one archetype shares a single answer.
+  const synergyTiles = useMemo(
+    () => (ruleset === 'ASYMMETRIC' ? synergyByTileId(properties, staticBoard?.tiles ?? []) : EMPTY_SYNERGY),
+    [ruleset, properties, staticBoard]
+  )
+
+  // "Sương mù bẫy" — the fog is drawn by the SERVER, not here. Redaction
+  // (backend/src/engine/stateRedaction.js's maskTrap) already replaces every
+  // trap this viewer doesn't own with an anonymous stub whose tileIndex is
+  // null, preserving only the array's length. So a trap that arrives with a
+  // real numeric tileIndex is, by construction, one of the viewer's own —
+  // there is nothing to filter by ownerId here, and no way for this component
+  // to leak a position it was never told.
+  const visibleTrapByPosition = useMemo(() => {
+    const map = new Map()
+    for (const trap of activeTraps) {
+      if (typeof trap.tileIndex === 'number') map.set(trap.tileIndex, trap)
+    }
+    return map
+  }, [activeTraps])
+  const hiddenTrapCount = activeTraps.length - visibleTrapByPosition.size
+
+  const trapBooms = useTrapBooms(lastTrapHits, lastTrapHitSeq)
 
   const dragRef = useRef(null)
   const lastRotatedKeyRef = useRef(null)
@@ -543,6 +628,8 @@ export default function GameBoard() {
               isSelected={!isTargetingTrap && property != null && property.id === selectedPropertyId}
               onClick={trapTileOnClick ?? (property ? () => selectProperty(property.id) : undefined)}
               isTargetable={isTargetingTrap}
+              synergy={synergyTiles.get(tile.id)}
+              trap={visibleTrapByPosition.get(tile.position)}
               owner={owner}
               upgradeLevel={property?.upgradeLevel ?? 0}
               rentPreview={rentPreview}
@@ -586,6 +673,27 @@ export default function GameBoard() {
             )
           })}
 
+          {/* "Bẫy phát nổ" — a one-shot marker on the tile a trap actually
+              fired on (gameState.lastTrapHits, cleared by useTrapBooms after
+              TRAP_BOOM_MS). This is the ONLY way a victim ever learns where a
+              trap was: they never saw it beforehand, since redaction hides
+              every trap but your own. Rendered in the token layer so it sits
+              over the board in the same percentage-positioned coordinate
+              space the tokens themselves use. */}
+          {trapBooms.map((hit) => {
+            const { row, col } = computeGridPosition(hit.tileIndex, edgeLength)
+            return (
+              <span
+                key={`boom-${lastTrapHitSeq}-${hit.tileIndex}`}
+                className={styles.trapBoom}
+                style={{ left: `${((col - 0.5) / size) * 100}%`, top: `${((row - 0.5) / size) * 100}%` }}
+                title={trapLabel(hit.type)}
+              >
+                💥
+              </span>
+            )
+          })}
+
           {[...playersByPosition.entries()].flatMap(([position, group]) => {
             const { row, col } = computeGridPosition(position, edgeLength)
             const left = ((col - 0.5) / size) * 100
@@ -600,6 +708,11 @@ export default function GameBoard() {
               // resolve in one frame and so never trigger it).
               const displayedPos = displayedPositions.get(player.id) ?? player.currentPosition
               const isWalking = displayedPos !== player.currentPosition
+              // Arrived here without walking (MOBILITY's forced TELEPORT, Go
+              // To Jail, an event-card send). Fades in on the spot instead of
+              // playing the arrival hop — a hop reads as "I just stepped
+              // here", which is exactly the wrong story for a teleport.
+              const isWarp = warpedAt.get(player.id) === displayedPos
               return (
                 <div
                   key={`token-${player.id}`}
@@ -638,7 +751,7 @@ export default function GameBoard() {
                       the animation — happens on every tile actually arrived
                       at: each step of a real walk, one at a time, and once
                       on a straight teleport landing alike. */}
-                  <div key={displayedPos} className={styles.tokenHop}>
+                  <div key={displayedPos} className={isWarp ? styles.tokenWarp : styles.tokenHop}>
                     {/* Stands upright out of the board and keeps facing the
                         camera at any spin/tilt — the same billboard formula
                         `.fromGhost` already uses, but hinged at its base so
@@ -654,6 +767,19 @@ export default function GameBoard() {
           })}
         </div>
       </div>
+
+      {/* How many traps are live that this viewer cannot see. Redaction
+          preserves activeTraps' LENGTH while stripping the contents, and that
+          is deliberate (stateRedaction.js's maskTrap): "N hazards are out
+          there somewhere" is information the design wants everyone to have —
+          it is what makes an unknown tile worth hesitating over — while the
+          positions stay secret. Sits in .viewport, OUTSIDE .board, so the
+          board's own rotateX/rotateZ camera never skews it. */}
+      {hiddenTrapCount > 0 && (
+        <div className={styles.hiddenTrapBadge} title={`${hiddenTrapCount} bẫy của đối thủ đang hoạt động ở đâu đó trên bàn cờ`}>
+          ⚠️ {hiddenTrapCount} bẫy ẩn
+        </div>
+      )}
     </div>
   )
 }

@@ -97,7 +97,16 @@ export default function DiceRoll() {
     return () => clearTimeout(timer)
   }, [lastRollSeq])
 
-  if (!lastRoll || hidden) return null
+  // `die1 <= 0` marks a lastRoll that is NOT a roll at all: ASYMMETRIC
+  // reuses this field as a plain "distance walked" carrier for movement-card
+  // plays, so GameBoard.jsx can animate the walk (turnMachine.js's
+  // handlePlayMovementCard explains why it reuses the field rather than
+  // inventing another one). Those carriers set die1 to 0 precisely so this
+  // component can tell them apart and stay out of the way — without this
+  // guard, playing a card would show the table a single bogus die face.
+  // Belt-and-braces: the write site also leaves lastRollSeq untouched, which
+  // already keeps the reveal timer below from re-arming.
+  if (!lastRoll || lastRoll.die1 <= 0 || hidden) return null
 
   return (
     // Keyed so a fresh roll remounts this subtree and the CSS tumble

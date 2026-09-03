@@ -3893,6 +3893,62 @@ test('a real move across a TOLL_BOOTH charges the crosser and pays the trap owne
   assert.deepEqual(gameState.activeTraps, [{ tileIndex: 3, type: 'TOLL_BOOTH', ownerId: 'gp-bob', expiresAtRound: 10 }], 'still standing');
 });
 
+// ── Display-only movement facts (frontend "Mặt trận 3") ────────────────────
+// lastRoll doubles as a "distance actually walked" carrier for ASYMMETRIC card
+// plays, and lastTrapHits/lastTrapHitSeq report which traps went off. No game
+// logic reads either back; these guard the contract the board's animation
+// layer relies on. See handlePlayMovementCard's own comment for the reasoning.
+
+test('a movement card reports the distance actually walked on lastRoll, WITHOUT bumping lastRollSeq', () => {
+  const state = trapGameState({ lastRollSeq: 7 });
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_6'], currentPosition: 20 };
+  const { gameState } = transitionTurn(state, board, { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: 'MOVE_6' } });
+
+  assert.equal(gameState.players.find((p) => p.id === 'gp-alice').currentPosition, 26);
+  assert.deepEqual(gameState.lastRoll, { die1: 0, die2: 0, total: 6, isDouble: false });
+  assert.equal(gameState.lastRollSeq, 7, 'not a real roll — bumping this would flash dice at the table');
+  assert.deepEqual(gameState.lastTrapHits, []);
+  assert.equal(gameState.lastTrapHitSeq, 0, 'nothing went off, so the explosion counter stays put');
+});
+
+test('a backward card reports its ABSOLUTE distance, not the 33-tile forward wrap', () => {
+  const state = trapGameState();
+  state.players[1] = { ...state.players[1], movementHand: ['BACKUP_3'], currentPosition: 20 };
+  const { gameState } = transitionTurn(state, board, { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: 'BACKUP_3' } });
+
+  assert.equal(gameState.players.find((p) => p.id === 'gp-alice').currentPosition, 17);
+  assert.equal(gameState.lastRoll.total, 3, 'the client walks 3 tiles backwards, never 33 forwards');
+});
+
+test('a ROADBLOCK reports the TRUNCATED distance and records the explosion', () => {
+  const state = trapGameState({ activeTraps: [{ tileIndex: 23, type: 'ROADBLOCK', ownerId: 'gp-bob', expiresAtRound: 10 }] });
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_6'], currentPosition: 20 };
+  const { gameState } = transitionTurn(state, board, { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: 'MOVE_6' } });
+
+  assert.equal(gameState.players.find((p) => p.id === 'gp-alice').currentPosition, 23);
+  assert.equal(gameState.lastRoll.total, 3, 'the walk really was 3 tiles, not the nominal 6 printed on the card');
+  assert.deepEqual(gameState.lastTrapHits, [{ tileIndex: 23, type: 'ROADBLOCK' }]);
+  assert.equal(gameState.lastTrapHitSeq, 1);
+});
+
+test('a TOLL_BOOTH crossing is reported as an explosion even though the trap survives', () => {
+  const state = trapGameState({ activeTraps: [{ tileIndex: 23, type: 'TOLL_BOOTH', ownerId: 'gp-bob', expiresAtRound: 10 }] });
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_6'], currentPosition: 20, currentBalance: 1500 };
+  const { gameState } = transitionTurn(state, board, { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: 'MOVE_6' } });
+
+  assert.deepEqual(gameState.lastTrapHits, [{ tileIndex: 23, type: 'TOLL_BOOTH' }]);
+  assert.equal(gameState.activeTraps.length, 1, 'reporting the hit does not consume it');
+});
+
+test('a clean move CLEARS the previous explosion so it cannot replay', () => {
+  const state = trapGameState({ lastTrapHits: [{ tileIndex: 3, type: 'ROADBLOCK' }], lastTrapHitSeq: 4 });
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_6'], currentPosition: 20 };
+  const { gameState } = transitionTurn(state, board, { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: 'MOVE_6' } });
+
+  assert.deepEqual(gameState.lastTrapHits, []);
+  assert.equal(gameState.lastTrapHitSeq, 4, 'unchanged — the counter only moves when something actually fires');
+});
+
 test('END_TURN, on the real round-wrap boundary, prunes expired traps but keeps live ones', () => {
   const state = baseGameState({
     ruleset: 'ASYMMETRIC',

@@ -26,7 +26,7 @@ import { activeTrapsOf, TOLL_BOOTH_AMOUNT } from './trapEngine.js';
  * @param {object} [options]
  * @param {import('../domain/tile.js').Tile[]} [options.boardTiles] - required for pass-through; omit for movement-only
  * @param {boolean} [options.ignorePassThrough] - JUMP cards (movementDictionary.js) cross immune
- * @returns {{newPosition: number, passedGo: boolean, stoppedByTrap: boolean, stepsLost: number, tolls: object[], cardEffects: object[], consumedTrapTileIndexes: number[]}}
+ * @returns {{newPosition: number, passedGo: boolean, stoppedByTrap: boolean, stepsLost: number, tolls: object[], cardEffects: object[], consumedTrapTileIndexes: number[], trapHits: {tileIndex: number, type: string}[]}}
  */
 export function resolveMovement(gameState, playerId, steps, direction = 1, boardTileCount, options = {}) {
   const player = gameState.players.find((p) => p.id === playerId);
@@ -34,7 +34,7 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
 
   if (gameState.ruleset === 'CLASSIC') {
     const classic = classicMovePlayer(player.currentPosition, steps, boardTileCount);
-    return { ...classic, stoppedByTrap: false, stepsLost: 0, tolls: [], cardEffects: [], consumedTrapTileIndexes: [] };
+    return { ...classic, stoppedByTrap: false, stepsLost: 0, tolls: [], cardEffects: [], consumedTrapTileIndexes: [], trapHits: [] };
   }
 
   const { boardTiles = null, ignorePassThrough = false } = options;
@@ -47,6 +47,14 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
   const tolls = [];
   const cardEffects = [];
   const consumedTrapTileIndexes = [];
+  // Every trap actually SET OFF by this walk, in crossing order — the
+  // display-only counterpart to consumedTrapTileIndexes (which is the
+  // narrower "...and this one no longer exists afterwards" list). The two
+  // genuinely differ: a TOLL_BOOTH fires here without ever being consumed,
+  // and a caller that wants to show a "bẫy phát nổ" effect needs the
+  // FIRING, not the removal. Nothing in this engine reads it back — see the
+  // write site in turnMachine.js for what it does and does not reveal.
+  const trapHits = [];
 
   // A guard, not a rule: CONTROL removes steps, and a long enough chain of
   // owned CONTROL tiles could in principle keep removing them. The simulation
@@ -78,6 +86,7 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
     const trap = activeTrapsOf(gameState).find((t) => t.tileIndex === currentPos);
     if (trap?.type === 'ROADBLOCK') {
       stoppedByTrap = true;
+      trapHits.push({ tileIndex: trap.tileIndex, type: trap.type });
       consumedTrapTileIndexes.push(trap.tileIndex); // one-shot — turnMachine.js removes it after this move settles
       break;
     }
@@ -90,6 +99,7 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
       // reads this field (checked before adding it); it exists purely so a
       // future transaction-log UI has something to point at.
       tolls.push({ ownerId: trap.ownerId, amount: TOLL_BOOTH_AMOUNT, tileId: currentPos });
+      trapHits.push({ tileIndex: trap.tileIndex, type: trap.type });
       // A standing hazard, not one-shot: does NOT go into
       // consumedTrapTileIndexes, so it keeps charging every crossing until
       // its own expiresAtRound lapses.
@@ -140,5 +150,5 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
     }
   }
 
-  return { newPosition: currentPos, passedGo, stoppedByTrap, stepsLost, tolls, cardEffects, consumedTrapTileIndexes };
+  return { newPosition: currentPos, passedGo, stoppedByTrap, stepsLost, tolls, cardEffects, consumedTrapTileIndexes, trapHits };
 }

@@ -528,3 +528,67 @@
 .hotel3d .roofRight {
   background-color: #d09a1c;
 }
+
+/* ── ASYMMETRIC: live Hệ Tộc (synergy) marker, 2026-09-04 ──────────────────
+   A synergy is a property of a whole PORTFOLIO, not of any single tile, so
+   before this there was no way to look at the board and tell which tiles were
+   actually generating an effect — the information existed only in the
+   server's head. --synergy-color (the archetype, set inline by BoardTile.jsx)
+   is the hue and --synergy-tier (1..3) is the intensity, so one archetype
+   always reads as one colour and brightness alone says how far along it is.
+
+   Composed as extra box-shadow layers rather than a border/outline: the
+   tile's own ownership ring is ALREADY an inset box-shadow (.tile above), and
+   a real border would change the tile's box and shift every neighbour on a
+   grid this tightly packed. Earlier shadow layers paint on top, so the thin
+   archetype ring sits just outside the thicker owner ring and both stay
+   readable at once — who owns it, and what it is currently powering. */
+.synergy {
+  box-shadow:
+    inset 0 0 0 2px var(--synergy-color),
+    inset 0 0 0 6px var(--owner-color, transparent),
+    0 0 calc(2px + var(--synergy-tier, 1) * 3px) var(--synergy-color);
+  /* Lifts the glow above the neighbouring tiles' own backgrounds; without it
+     an adjacent tile paints over the outer half of this one's halo. */
+  z-index: 1;
+}
+
+/* Positioned with the same writing-mode-aware logical offsets .ownedPrice
+   uses (see its own long comment): resolved against each tile's own
+   writing-mode BEFORE the decorative whole-tile rotateZ(180deg) on .top/
+   .right, so this one rule lands on the correct real corner for all four
+   board edges with no per-edge overrides. block-START puts it at the
+   board-centre-facing end, i.e. the opposite end from .ownedPrice, so an
+   owned tile powering a synergy can show both without them colliding. */
+.synergyBadge {
+  position: absolute;
+  inset-block-start: 1px;
+  inset-inline-end: 2px;
+  z-index: 4;
+  padding: 0 0.25em;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--synergy-color);
+  font-size: 0.6em;
+  font-weight: 800;
+  letter-spacing: -0.08em;
+  line-height: 1.4;
+  pointer-events: none; /* .tile's own onClick stays the only click target — same rule .ownedPrice follows */
+}
+
+/* ── ASYMMETRIC: the viewer's OWN trap ─────────────────────────────────────
+   Never rendered for anyone else's: the server strips every other player's
+   trap to a position-less stub before broadcasting (engine/stateRedaction.js),
+   so this component is never told where one is. Deliberately faint — it is a
+   reminder of where you planted yours, not an alert. */
+.trapMarker {
+  position: absolute;
+  inset-block-start: 22%;
+  inset-inline-start: 2px;
+  z-index: 4;
+  font-size: 0.8em;
+  line-height: 1;
+  opacity: 0.75;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  pointer-events: none;
+}

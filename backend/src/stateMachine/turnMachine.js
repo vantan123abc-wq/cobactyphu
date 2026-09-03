@@ -1912,7 +1912,7 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
     );
   }
 
-  const { newPosition, passedGo, stoppedByTrap, tolls, cardEffects, consumedTrapTileIndexes } = resolveMovement(
+  const { newPosition, passedGo, stoppedByTrap, tolls, cardEffects, consumedTrapTileIndexes, trapHits } = resolveMovement(
     stateAfterCost,
     player.id,
     steps,
@@ -1992,8 +1992,55 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
   }
 
   const landing = resolveLanding(stateAfterMove, boardTiles, finalPlayer.id, now);
+
+  // ── Display-only movement facts (2026-09-04, frontend "Mặt trận 3") ─────
+  // Everything below is for the client's animation layer and is read back by
+  // no game logic whatsoever — the same standing `lastRoll` itself already
+  // has (see its own JSDoc in domain/gameState.js).
+  //
+  // WHY this is needed at all: GameBoard.jsx decides "walk tile-by-tile vs.
+  // jump straight there" by checking whether the position delta matches
+  // `lastRoll.total`. ASYMMETRIC never rolls dice on a normal turn, so
+  // lastRoll stayed null for every card play and EVERY ASYMMETRIC move
+  // rendered as a silent instant teleport — no walk, ever. Reusing lastRoll
+  // as a plain "distance travelled" carrier is the idiom this codebase
+  // already established for non-dice movement (handleEventChoice's own C01
+  // "Lối Tắt" branch does exactly this), so no new field is invented for it.
+  //
+  // `die1: 0` marks it as a carrier rather than a real roll, and
+  // lastRollSeq is deliberately NOT bumped — DiceRoll.jsx keys its tumble on
+  // that counter, so leaving it alone is what keeps a card play from
+  // flashing bogus dice at the table (frontend also hard-guards on die1 > 0).
+  //
+  // The distance is the REAL distance walked (after CONTROL's step loss,
+  // MOBILITY's nudge and a ROADBLOCK truncation), not the card's nominal
+  // `steps` — the client compares it against an actual position delta, so a
+  // nominal figure would simply never match and would silently disable the
+  // walk again. Direction is not sent: the client tests the delta both ways
+  // round, which is unambiguous because the two readings can only collide at
+  // exactly half a lap (18 tiles on Small, 22 on Large) and the longest
+  // possible card walk is SPRINT_12 plus a nudge.
+  const n = boardTileCount;
+  const forwardDelta = ((newPosition - player.currentPosition) % n + n) % n;
+  const backwardDelta = ((player.currentPosition - newPosition) % n + n) % n;
+  const travelled = cardDef.direction === -1 ? backwardDelta : forwardDelta;
+
   return {
-    gameState: landing.gameState,
+    gameState: {
+      ...landing.gameState,
+      lastRoll: travelled > 0 ? { die1: 0, die2: 0, total: travelled, isDouble: false } : null,
+      // Traps that actually fired on this walk. A ROADBLOCK here is already
+      // gone (consumed above), so naming its tile reveals nothing still
+      // live. A TOLL_BOOTH does survive, and this DOES therefore expose its
+      // position to the whole table — accepted deliberately: it just charged
+      // someone in full public view (the token visibly walked over that tile
+      // and money moved), so treating it as still-secret afterwards would be
+      // a fiction. It stays hidden until its FIRST victim, which is the part
+      // that matters. Cleared to [] on any move that set nothing off, so a
+      // stale explosion can never replay on a later turn.
+      lastTrapHits: trapHits,
+      lastTrapHitSeq: (gameState.lastTrapHitSeq ?? 0) + (trapHits.length > 0 ? 1 : 0),
+    },
     transactions: [...transactions, ...landing.transactions],
   };
 }
