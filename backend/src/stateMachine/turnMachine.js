@@ -2238,14 +2238,16 @@ function handleForceAuction(gameState, boardTiles, action) {
   //     only manufactures a guaranteed FAILED auction that still burns the
   //     fee. Skipping the purchase does the same thing for free.
   const printedPrice = tile.price;
-  const minOpeningPrice = Math.ceil(printedPrice * MIN_AUCTION_OPEN_RATIO);
   const requestedOpen = action?.payload?.basePrice;
   let basePrice = printedPrice;
   if (requestedOpen != null) {
-    if (!Number.isInteger(requestedOpen) || requestedOpen < minOpeningPrice || requestedOpen > printedPrice) {
+    // Only constraint: must be a positive integer. No floor, no ceiling —
+    // the host may open at any price they choose. The 5% fee is their skin
+    // in the game regardless of what they pick.
+    if (!Number.isInteger(requestedOpen) || requestedOpen <= 0) {
       throw new InvalidPropertyActionError(
         'INVALID_BASE_PRICE',
-        `handleForceAuction: opening price ${requestedOpen} is outside the allowed range [${minOpeningPrice}, ${printedPrice}]`
+        `handleForceAuction: opening price ${requestedOpen} must be a positive integer`
       );
     }
     basePrice = requestedOpen;
