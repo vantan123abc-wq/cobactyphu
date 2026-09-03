@@ -142,22 +142,17 @@ export default function PropertyActionDrawer() {
   // Mirrors handleBuyProperty's own `player.currentBalance < amount` check.
   const cannotAffordBuy = typeof tile.price === 'number' && me.currentBalance < tile.price
 
-  // FORCE_AUCTION economics, mirrored from handleForceAuction (2026-09-03).
-  // `currentAuctionFee`/`cannotAffordAuction` were being READ by the JSX below
-  // without ever being declared — a live ReferenceError that crashed this
-  // drawer on every AWAITING_PURCHASE, i.e. every time anyone landed on an
-  // unowned tile. Defined here, and kept in one place so the three uses below
-  // cannot drift from each other.
-  //
-  // The fee tracks calculateAuctionFee(tile.price) byte-for-byte, and is
-  // computed from the PRINTED price on purpose: the server charges it that way
-  // so that discounting the opening bid never discounts the host's own cost.
+  // FORCE_AUCTION economics — fee is now 5% of the HOST-CHOSEN opening price
+  // (basePrice), mirroring the server change on 2026-09-03. The fee is
+  // recomputed live as the user adjusts the opening-price input so the "Phí
+  // mở" label always shows what will actually be charged.
   const printedPrice = typeof tile.price === 'number' ? tile.price : 0
-  const currentAuctionFee = Math.ceil(Math.max(20, Math.min(80, printedPrice * 0.05)))
-  const cannotAffordAuction = me.currentBalance < currentAuctionFee
-  // Allowed opening-price band, mirroring MIN_AUCTION_OPEN_RATIO (0.5) and the
-  // "never above the printed price" rule in handleForceAuction.
   const minOpeningPrice = Math.ceil(printedPrice * 0.5)
+  // clampOpeningPrice is used before this point in the file, so we need the
+  // clamped value for the live fee preview.
+  const clampedBasePrice = Math.min(printedPrice, Math.max(minOpeningPrice, Number.isFinite(basePrice) ? basePrice : printedPrice))
+  const currentAuctionFee = Math.ceil(Math.max(20, Math.min(80, clampedBasePrice * 0.05)))
+  const cannotAffordAuction = me.currentBalance < currentAuctionFee
 
   // Real BUILD_HOUSE preconditions, mirrored from the server (buildRules.js)
   // — only meaningful while a build is actually being offered (AWAITING_UPGRADE,

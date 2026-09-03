@@ -2251,12 +2251,10 @@ function handleForceAuction(gameState, boardTiles, action) {
     basePrice = requestedOpen;
   }
 
-  // Fee is charged on the PRINTED price, never on the chosen opening —
-  // otherwise discounting the opening would quietly discount the host's own
-  // cost of opening it, and the cheapest auction to run would always be the
-  // one most generous to the buyer. The fee prices the *service*, which is
-  // the same whatever the host opens at.
-  const fee = calculateAuctionFee(printedPrice);
+  // Fee is charged on the HOST-CHOSEN opening price (basePrice), not the
+  // printed tile price. This way the host pays proportionally to the price
+  // they choose to open at — a lower opening means a lower fee.
+  const fee = calculateAuctionFee(basePrice);
   if (player.currentBalance < fee) {
     // 2026-09-02: was an InvalidTurnActionError, which socketServer.js's
     // errorCodeFor() maps to PHASE_MISMATCH — so a player who simply lacked
