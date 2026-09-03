@@ -127,28 +127,27 @@
 }
 
 .doubleBadge {
-  padding: 0.15em 0.7em;
+  margin-top: calc(var(--side) * 0.02);
+  padding: 0.25em 1em;
   border-radius: 999px;
-  font-size: calc(var(--side) * 0.019);
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  background: #f0b429;
-  color: #241a02;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
-  animation: badgePop 0.4s ease-out 1.05s backwards; /* waits for the dice to actually settle before announcing the result */
+  font-size: calc(var(--side) * 0.035);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, #ffd700, #ff8c00);
+  color: #1a0f00;
+  border: 2px solid #fff;
+  box-shadow: 0 6px 20px rgba(255, 140, 0, 0.6), inset 0 1px 3px rgba(255, 255, 255, 0.8);
+  animation: badgePop 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) 1.05s backwards;
 }
 
 @keyframes badgePop {
   0% {
     opacity: 0;
-    transform: scale(0.4);
-  }
-  70% {
-    opacity: 1;
-    transform: scale(1.12);
+    transform: scale(0.2) translateY(20px);
   }
   100% {
     opacity: 1;
-    transform: scale(1);
+    transform: scale(1) translateY(0);
   }
 }
