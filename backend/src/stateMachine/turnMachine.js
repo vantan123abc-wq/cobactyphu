@@ -204,14 +204,6 @@ const PASS_GO_SALARY = 200; // GAME_DESIGN_SPEC.md §0, PROPOSED classic value
 const FREE_PARKING_JACKPOT_CAP = 600;
 const HOSTILE_BUYOUT_MULTIPLIER = 2; // Phase 14 (2026-08-19) brief's own explicit number — BOARD_SPECIFICATION.md's older sketch had proposed >=150%, superseded by this fresh, more precise instruction
 
-// Floor on FORCE_AUCTION's custom opening price, as a fraction of the tile's
-// printed price (2026-09-03). Deliberately V0's original fixed opening bid
-// (BOARD_SPECIFICATION.md's "V0 -> V1: opening bid changed from 50% to 100%")
-// rather than a fresh number: the game has already treated half price as a
-// reasonable place to start an auction. See handleForceAuction for why the
-// floor exists at all — without one, "open at $1" is a collusion tool.
-const MIN_AUCTION_OPEN_RATIO = 0.5;
-
 export class InvalidTurnActionError extends Error {
   constructor(phase, actionType) {
     super(`transitionTurn: action '${actionType}' is not valid during phase '${phase}'`);
@@ -2219,24 +2211,23 @@ function handleForceAuction(gameState, boardTiles, action) {
   const property = gameState.properties.find((p) => p.boardTileId === tile.id);
   const bank = getBankPlayer(gameState);
 
-  // Custom opening price (2026-09-03). The host may DISCOUNT the opening bid
-  // to attract a bid, down to MIN_AUCTION_OPEN_RATIO of the printed price;
-  // omitting it opens at the printed price exactly as before.
+  // Custom opening price (2026-09-03). The host may open the lot at any price
+  // they choose; omitting it opens at the printed price exactly as before.
   //
-  // Bounded in both directions on purpose:
-  //   - Below the floor is the dangerous one. With no floor, a host could
-  //     open a $400 lot at $1. At a 2-player table that is only self-harm
-  //     (the Broker rule bars them from bidding, so they are gifting the
-  //     opponent), but with 3+ players it is a collusion tool: open low, let
-  //     an ally take it for a few dollars. Rival bidders can compete the
-  //     price back up, which dampens it, but nothing forces them to be
-  //     solvent at that moment. 50% is not an arbitrary number — it is V0's
-  //     original fixed opening bid (BOARD_SPECIFICATION.md), i.e. a level
-  //     this game has already accepted as reasonable.
-  //   - Above the printed price is refused because it has no upside for
-  //     anyone: it cannot attract a bid the printed price would not, and it
-  //     only manufactures a guaranteed FAILED auction that still burns the
-  //     fee. Skipping the purchase does the same thing for free.
+  // This was originally bounded to [50% of printed, printed]. Those bounds
+  // were REMOVED the same day, deliberately ("allow any positive opening
+  // price, no upper/lower bound") — but the long comment block arguing FOR
+  // them outlived them and sat here directly contradicting the code three
+  // lines below. Deleted 2026-09-04 rather than left lying.
+  //
+  // The concern it raised is real and is now knowingly unmitigated, so it is
+  // recorded here rather than lost with it: with no floor, a host at a 3+
+  // player table can open a $400 lot at $1 and let an ally take it for pocket
+  // change. At a 2-player table that is only self-harm (the Broker rule bars
+  // the host from bidding), and rival bidders can always compete the price
+  // back up — but nothing forces them to be solvent at that moment. Accepted
+  // as a known trade for host freedom; revisit if collusion shows up in real
+  // play.
   const printedPrice = tile.price;
   const requestedOpen = action?.payload?.basePrice;
   let basePrice = printedPrice;

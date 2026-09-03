@@ -57,8 +57,10 @@ test('buildDefaultAction: TURN_START defaults to a plain START_TURN, no payload'
   assert.deepEqual(buildDefaultAction('TURN_START', {}), { type: 'START_TURN' });
 });
 
-test('computeDeadline returns a 15-second offset for FLASH_AUCTION_ACTIVE', () => {
-  assert.equal(computeDeadline('2026-08-17T00:00:00.000Z', 'FLASH_AUCTION_ACTIVE'), '2026-08-17T00:00:15.000Z');
+// 5s, not 15: the auction rework (503a83f) moved FLASH_AUCTION_ACTIVE to a 5s
+// opening window extended per bid, and left this assertion on the old value.
+test('computeDeadline returns a 5-second offset for FLASH_AUCTION_ACTIVE', () => {
+  assert.equal(computeDeadline('2026-08-17T00:00:00.000Z', 'FLASH_AUCTION_ACTIVE'), '2026-08-17T00:00:05.000Z');
 });
 
 test('computeDeadline throws for a phase with no timed default', () => {

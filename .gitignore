@@ -30,3 +30,10 @@ dist-ssr
 # Generated / analysis files
 graphify-out/
 thought
+
+# Sibling git worktrees checked out INSIDE this directory (2026-09-04).
+# Without this, a `git add -A` here records the worktree as a phantom
+# gitlink (mode 160000) with no .gitmodules entry — which is exactly what
+# happened to CoBacTyPhu-asym and what this commit removes: a fresh clone
+# got a broken empty directory pinned to a stale commit of another branch.
+CoBacTyPhu-asym/

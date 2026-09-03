@@ -282,7 +282,7 @@ test('FORCE_AUCTION: charges the auction fee and starts a Flash Auction (V2)', (
 // --- Custom opening price (2026-09-03) ---
 // Station A is price 200, so the allowed band is [ceil(200*0.5), 200] = [100, 200]
 // and the fee is calculateAuctionFee(200) = 20.
-test('FORCE_AUCTION: a custom opening price inside the allowed band opens the auction there', () => {
+test('FORCE_AUCTION: a custom opening price opens the auction there', () => {
   let state = { ...baseGameState(), phase: 'ROLLING' };
   ({ gameState: state } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 1) }));
   const { gameState: after } = transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: 120 } });
@@ -291,37 +291,51 @@ test('FORCE_AUCTION: a custom opening price inside the allowed band opens the au
   assert.equal(after.pendingAuction.currentBid, 120); // opening bid follows it
 });
 
-test('FORCE_AUCTION: discounting the opening price does NOT discount the fee', () => {
-  // The whole point of charging the fee on the printed price: otherwise the
-  // most buyer-generous auction would also be the cheapest one to run.
+test('FORCE_AUCTION: the fee follows the HOST-CHOSEN opening price, not the printed price', () => {
+  // Renamed and re-pointed 2026-09-04. This previously asserted the OPPOSITE
+  // ("discounting the opening price does NOT discount the fee") and kept
+  // passing after the basis changed to basePrice, purely because 5% of both
+  // 100 and 200 clamps to the same $20 floor — a green test documenting a rule
+  // the code had stopped following. Two cases now, picked so the floor cannot
+  // mask the difference a second time.
   let state = { ...baseGameState(), phase: 'ROLLING' };
   ({ gameState: state } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 1) }));
-  const { gameState: after, transactions } = transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: 100 } });
 
-  assert.equal(transactions[0].amount, 20); // fee still 5% of the PRINTED 200, clamped to the $20 floor
-  assert.equal(after.players.find((p) => p.id === 'gp-alice').currentBalance, 1500 - 20);
-  assert.equal(after.pendingAuction.basePrice, 100);
+  // Opening ABOVE the printed $200: 5% of 1000 is $50, well clear of the floor.
+  const { gameState: high, transactions: highTx } = transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: 1000 } });
+  assert.equal(highTx[0].amount, 50, 'fee is 5% of the chosen opening, not of the printed 200');
+  assert.equal(high.pendingAuction.basePrice, 1000);
+
+  // Opening BELOW it: 5% of 100 is $5, so the $20 fee floor is what binds.
+  const { gameState: low, transactions: lowTx } = transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: 100 } });
+  assert.equal(lowTx[0].amount, 20, 'the fee floor still applies to a cheap opening');
+  assert.equal(low.players.find((p) => p.id === 'gp-alice').currentBalance, 1500 - 20);
+  assert.equal(low.pendingAuction.basePrice, 100);
 });
 
-test('FORCE_AUCTION: an opening price below half the printed price is rejected (INVALID_BASE_PRICE)', () => {
-  // The collusion case the floor exists for: open a $200 lot at $1 so an ally
-  // takes it for pocket change.
+// Rewritten 2026-09-04. These two previously pinned a [50% of printed,
+// printed] band that "allow any positive opening price, no upper/lower bound"
+// (2026-09-03) deliberately removed — so they had been RED on master ever
+// since: the code moved and the tests did not. They now pin what actually
+// ships, which is a single rule: a positive integer. The collusion risk the
+// old floor guarded against is recorded as a known, accepted trade in
+// handleForceAuction's own comment, and deliberately not re-asserted here, so
+// this file describes the shipped rule and nothing else.
+test('FORCE_AUCTION: any positive integer opening price is accepted — no floor, no ceiling', () => {
   let state = { ...baseGameState(), phase: 'ROLLING' };
   ({ gameState: state } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 1) }));
-  assert.throws(
-    () => transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: 1 } }),
-    (err) => err instanceof InvalidPropertyActionError && err.reason === 'INVALID_BASE_PRICE'
-  );
-  assert.throws(
-    () => transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: 99 } }), // one under the floor
-    (err) => err instanceof InvalidPropertyActionError && err.reason === 'INVALID_BASE_PRICE'
-  );
+  // 1 and 99 sit under the removed 50% floor; 201 and 1000 sit over the
+  // removed printed-price ceiling — the exact values the old band rejected.
+  for (const good of [1, 99, 201, 1000]) {
+    const { gameState: after } = transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: good } });
+    assert.equal(after.pendingAuction.basePrice, good, `basePrice ${good} should have been accepted`);
+  }
 });
 
-test('FORCE_AUCTION: an opening price above the printed price, or a non-integer, is rejected', () => {
+test('FORCE_AUCTION: a non-integer or non-positive opening price is still rejected (INVALID_BASE_PRICE)', () => {
   let state = { ...baseGameState(), phase: 'ROLLING' };
   ({ gameState: state } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 1) }));
-  for (const bad of [201, 1000, 150.5]) {
+  for (const bad of [150.5, 0, -50]) {
     assert.throws(
       () => transitionTurn(state, board, { type: 'FORCE_AUCTION', payload: { basePrice: bad } }),
       (err) => err instanceof InvalidPropertyActionError && err.reason === 'INVALID_BASE_PRICE',
