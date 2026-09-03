@@ -41,6 +41,13 @@ const HANDLED_PHASES = [
   // screenshot showing exactly that during AWAITING_UPGRADE.
   'AWAITING_UPGRADE',
   'FLASH_AUCTION_ACTIVE',
+  // DRAFTING_ACTIVE (ASYMMETRIC only) → DraftPhase.jsx, mounted separately in
+  // GameView.jsx. Same reasoning as FLASH_AUCTION_ACTIVE just above: its
+  // own full-viewport backdrop physically covers this component underneath
+  // (both position:fixed, inset:0), so the generic "Đang chờ lượt của X…"
+  // line below is invisible either way — this entry only suppresses the
+  // redundant fallback-text message from also existing in the DOM.
+  'DRAFTING_ACTIVE',
 ]
 
 // P11-T10: a small always-visible "start a trade" row, added here rather

@@ -22,6 +22,7 @@ import FinalPhaseBanner from './FinalPhaseBanner'
 import FinalDuelBanner from './FinalDuelBanner'
 import GameOverScreen from './GameOverScreen'
 import LiquidationPanel from './LiquidationPanel'
+import DraftPhase from './DraftPhase'
 import styles from './GameView.module.css'
 
 // GameView redesign (2026-08-22) — was a flat list of independently
@@ -111,6 +112,10 @@ export default function GameView() {
         </aside>
       </div>
 
+      {/* DRAFTING_ACTIVE (ASYMMETRIC only) — the very first phase a match can
+          be in, before TURN_START even fires once. Listed first here for the
+          same reason. */}
+      <DraftPhase />
       <PropertyManager />
       <PropertyActionDrawer />
       <LiquidationPanel />

@@ -270,6 +270,35 @@ const ERRORS = {
     body: 'Cơ hội cược tiền thuê chỉ mở sau khi có người trả tiền thuê cho bạn.',
   },
 
+  // ── Draft Phase (ASYMMETRIC only) ──────────────────────────────────────
+  TILE_NOT_AVAILABLE: {
+    tone: 'timing',
+    title: 'Ô này không còn trong lượt chọn',
+    body: 'Bộ 4 ô đất vừa được làm mới, hoặc không phải lượt chọn của bạn. Chọn lại trong số các ô đang hiển thị.',
+  },
+
+  // ── Bẫy (ROADBLOCK/TOLL_BOOTH, ASYMMETRIC only) ─────────────────────
+  UNKNOWN_TRAP_TYPE: {
+    tone: 'fault',
+    title: 'Loại bẫy không hợp lệ',
+    body: 'Chỉ có hai loại bẫy: Chướng Ngại Vật và Trạm Thu Phí.',
+  },
+  INVALID_POSITION: {
+    tone: 'rule',
+    title: 'Vị trí không hợp lệ',
+    body: 'Ô đích phải là một vị trí thật trên bàn cờ.',
+  },
+  TILE_OCCUPIED: {
+    tone: 'rule',
+    title: 'Ô này đã có bẫy',
+    body: 'Mỗi ô chỉ được đặt một bẫy tại một thời điểm — của bạn hoặc của người khác. Chọn ô khác.',
+  },
+  TRAP_LIMIT_REACHED: {
+    tone: 'rule',
+    title: 'Đã đạt giới hạn bẫy',
+    body: 'Bạn chỉ được đặt tối đa 2 bẫy cùng lúc. Chờ một bẫy cũ hết hạn hoặc bị kích hoạt trước khi đặt thêm.',
+  },
+
   // ── Đầu hàng ────────────────────────────────────────────────────────
   ALREADY_ELIMINATED: {
     tone: 'timing',

@@ -1,0 +1,185 @@
+/* Same overlay shape as FlashAuction.module.css — full-viewport, bottom-
+   docked, no dismiss affordance (no click-outside-to-cancel action exists
+   in the wire contract for this phase either). Reused rather than
+   reinvented: both are "a time-boxed decision, not always this player's to
+   make, shown to the whole table at once." */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  padding: 16px;
+  box-sizing: border-box;
+  animation: backdropFadeIn 0.2s ease-out;
+}
+
+@keyframes backdropFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: min(520px, 100%);
+  max-height: 78vh;
+  overflow-y: auto;
+  padding: 22px 20px;
+  box-sizing: border-box;
+  border-radius: 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  animation: modalPopIn 0.25s ease-out;
+}
+
+@keyframes modalPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--et-gold);
+}
+
+.timer {
+  margin: -8px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.timerUrgent {
+  color: #ff4d4f;
+}
+
+.status {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-h);
+  text-align: center;
+}
+
+/* Snake pick order — the reason this row exists at all (draftPhase.js's own
+   file header: "chống Meta cứng" only works if the order is actually
+   visible). Wraps on a small viewport rather than scrolling horizontally. */
+.pickOrder {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+}
+
+.pickChip {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.pickChipActive {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.pickChipDone {
+  opacity: 0.55;
+}
+
+.tileGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.tileCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border-radius: 10px;
+  border: 2px solid var(--border);
+  background: var(--code-bg);
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: transform 0.12s ease-out, box-shadow 0.12s ease-out;
+}
+
+.tileCard:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
+
+.tileCard:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.icon {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-h);
+}
+
+.tileName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+  text-align: center;
+}
+
+.tilePrice {
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.passButton {
+  width: 100%;
+  padding: 10px 8px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.passButton:not(:disabled):hover {
+  background: var(--code-bg);
+}
+
+.passButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
