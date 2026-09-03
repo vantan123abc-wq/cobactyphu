@@ -108,6 +108,10 @@ const DECKS = {
     { id: 'RANDOM_2_12', rand: [2, 12], dir: 1, cost: 0 },
   ],
 };
+const JUMP_COST = Number(process.env.JUMP_COST ?? 100);
+DECKS.mixedJ = [...DECKS.mixed, { id: 'JUMP_6', steps: 6, dir: 1, cost: JUMP_COST, jump: true }, { id: 'JUMP_9', steps: 9, dir: 1, cost: JUMP_COST, jump: true }];
+// JUMP trả giá bằng NHỊP ĐỘ (bước ngắn) thay vì bằng TIỀN.
+DECKS.mixedJs = [...DECKS.mixed, { id: 'JUMP_2', steps: 2, dir: 1, cost: 0, jump: true }, { id: 'JUMP_3', steps: 3, dir: 1, cost: 0, jump: true }];
 const DECK = DECKS[process.env.DECKSET ?? 'v1'];
 
 const PASS_GO = 200;
@@ -146,12 +150,12 @@ const blank = () => ({
   passes: Array(N).fill(0),      // times an opponent CROSSED an owned tile
   landings: Array(N).fill(0),    // times an opponent STOPPED on an owned tile
   rentPaid: 0, tollPaid: 0, taxPaid: 0, goSalary: 0,
-  stepsLost: 0, stuckTurns: 0, netSteps: 0, turns: 0, laps: 0, bankrupt: 0, soldTiles: 0, jailBypass: 0, finished: 0,
+  jumpPlayed: 0, cardsPlayed: 0, stepsLost: 0, stuckTurns: 0, netSteps: 0, turns: 0, laps: 0, bankrupt: 0, soldTiles: 0, jailBypass: 0, finished: 0,
   byArch: {}, forcedChoice: 0, forcedPick: {},
 });
 const add = (acc, m) => {
   for (let i = 0; i < N; i++) { acc.passes[i] += m.passes[i]; acc.landings[i] += m.landings[i]; }
-  for (const k of ['rentPaid', 'tollPaid', 'taxPaid', 'goSalary', 'stepsLost', 'stuckTurns', 'netSteps', 'turns', 'laps', 'bankrupt', 'soldTiles', 'jailBypass', 'finished', 'forcedChoice'])
+  for (const k of ['rentPaid', 'tollPaid', 'taxPaid', 'goSalary', 'jumpPlayed', 'cardsPlayed', 'stepsLost', 'stuckTurns', 'netSteps', 'turns', 'laps', 'bankrupt', 'soldTiles', 'jailBypass', 'finished', 'forcedChoice'])
     acc[k] += m[k];
   for (const [k, v] of Object.entries(m.byArch)) acc.byArch[k] = (acc.byArch[k] ?? 0) + v;
   for (const [k, v] of Object.entries(m.forcedPick)) acc.forcedPick[k] = (acc.forcedPick[k] ?? 0) + v;
@@ -182,7 +186,7 @@ function playMatch(mode) {
     return rentOf(t, p, holdings(p.owner));
   };
   // Toll accrued walking from `from` to `to` (exclusive of `from`, inclusive of `to`).
-  const walkTolls = (pi, from, steps, dir) => {
+  const walkTolls = (pi, from, steps, dir, jump = false) => {
     let cur = from, toll = 0, hits = 0, passedGo = false, remaining = steps;
     while (remaining > 0) {
       const raw = cur + dir;
@@ -191,6 +195,7 @@ function playMatch(mode) {
       remaining--;
       if (remaining === 0) break; // final tile is a LANDING, not a pass-through
       const t = BOARD[cur], pr = state.props[cur];
+      if (jump) continue;
       if (!pr || pr.owner === null || pr.owner === pi) continue;
       if (PASS_CAP > 0 && hits >= PASS_CAP) continue;
       hits++;
@@ -208,14 +213,14 @@ function playMatch(mode) {
       if (P.jail > 0) { P.jail--; P.cash -= JAIL_FINE; continue; }
 
       m.turns++;
-      let steps, dir = 1, cardCost = 0;
+      let steps, dir = 1, cardCost = 0, isJump = false;
       if (!asym) {
         steps = roll2d6();
       } else {
         // Evaluate every card in hand; pick by policy.
         const opts = P.hand.map((c, idx) => {
           const s = c.rand ? c.rand[0] + int(c.rand[1] - c.rand[0] + 1) : c.steps;
-          const w = walkTolls(pi, P.pos, s, c.dir);
+          const w = walkTolls(pi, P.pos, s, c.dir, c.jump);
           const total = landCost(pi, w.dest) + w.toll + c.cost - (w.passedGo ? PASS_GO : 0);
           return { idx, c, s, total, dest: w.dest, forward: c.dir * s };
         });
@@ -235,6 +240,7 @@ function playMatch(mode) {
           best = tied.reduce((a, b) => (b.forward > a.forward ? b : a));
         }
         steps = best.s; dir = best.c.dir; cardCost = best.c.cost;
+        isJump = !!best.c.jump; m.cardsPlayed++; if (isJump) m.jumpPlayed++;
         P.hand.splice(best.idx, 1);
         while (P.hand.length < HAND) P.hand.push(draw()); // V3 §1.3 draw rule
       }
@@ -250,6 +256,7 @@ function playMatch(mode) {
         remaining--; moved++;
         if (remaining === 0) break;
         const t = BOARD[P.pos], pr = state.props[P.pos];
+        if (isJump) continue;
         if (!pr || pr.owner === null || pr.owner === pi) continue;
         m.passes[P.pos]++;
         const a = archetypeOf(t);
@@ -332,6 +339,7 @@ row('Tổng lần DẪM TRÚNG đất địch', (r) => per(sum(r.landings)));
 row('  → Tỉ lệ Pass : Land', (r) => (sum(r.passes) / Math.max(1, sum(r.landings))).toFixed(1) + ' : 1');
 row('  → % lượt dừng trên đất địch', (r) => ((sum(r.landings) / Math.max(1, r.turns)) * 100).toFixed(1) + '%');
 row('Bước trung bình/lượt', (r) => (r.netSteps / Math.max(1, r.turns)).toFixed(2));
+row('% lượt đánh thẻ JUMP', (r) => r.cardsPlayed ? ((r.jumpPlayed / r.cardsPlayed) * 100).toFixed(1) + '%' : '—');
 row('Bước bị CONTROL trừ mất', (r) => per(r.stepsLost));
 row('Lượt gần như đứng yên (<=1 bước)', (r) => ((r.stuckTurns / Math.max(1, r.turns)) * 100).toFixed(1) + '%');
 row('Số vòng bàn hoàn thành', (r) => per(r.laps));

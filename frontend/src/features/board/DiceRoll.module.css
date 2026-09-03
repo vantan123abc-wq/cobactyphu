@@ -127,27 +127,28 @@
 }
 
 .doubleBadge {
-  margin-top: calc(var(--side) * 0.02);
+  margin-top: calc(var(--side) * 0.01);
   padding: 0.25em 1em;
   border-radius: 999px;
   font-size: calc(var(--side) * 0.035);
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
+  white-space: nowrap;
   background: linear-gradient(135deg, #ffd700, #ff8c00);
   color: #1a0f00;
   border: 2px solid #fff;
-  box-shadow: 0 6px 20px rgba(255, 140, 0, 0.6), inset 0 1px 3px rgba(255, 255, 255, 0.8);
-  animation: badgePop 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) 1.05s backwards;
+  box-shadow: 0 4px 12px rgba(255, 140, 0, 0.4), inset 0 1px 3px rgba(255, 255, 255, 0.8);
+  transform: translateZ(calc(var(--side) * 0.05));
+  animation: badgePop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) 1.05s backwards;
 }
 
 @keyframes badgePop {
   0% {
     opacity: 0;
-    transform: scale(0.2) translateY(20px);
+    transform: translateZ(calc(var(--side) * 0.05)) scale(0.4) translateY(20px);
   }
   100% {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: translateZ(calc(var(--side) * 0.05)) scale(1) translateY(0);
   }
 }

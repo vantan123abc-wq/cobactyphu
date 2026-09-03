@@ -58,6 +58,7 @@ export const TIMER_DURATIONS_SECONDS = Object.freeze({
   TURN_START: 15,
   JAIL_DECISION: 20, // JAIL_DECISION_TIMEOUT_SECONDS
   ROLLING: 20, // ROLL_TIMEOUT_SECONDS
+  PLAYING_CARD: 30, // 30s to choose a movement card
   AWAITING_PURCHASE: 15, // PURCHASE_DECISION_TIMEOUT_SECONDS
   FLASH_AUCTION_ACTIVE: 15, // placeholder — see comment above, not §0's real 12/3
   // RENT_RISK_DECISION removed 2026-08-25 — Rent Risk Choice no longer
@@ -306,6 +307,13 @@ export function buildDefaultAction(phase, gameState, boardTiles = [], randomSour
 
     case 'ROLLING':
       return { type: 'ROLL_DICE', payload: rollDice(gameState.currentDoublesStreak, randomSource) };
+
+    case 'PLAYING_CARD': {
+      const currentPlayer = gameState.players.find(p => p.id === gameState.currentTurnPlayerId);
+      const defaultCard = currentPlayer?.movementHand?.[0];
+      // Nếu không có bài (lỗi), đánh bừa thẻ mặc định, nhưng điều kiện bình thường luôn có bài
+      return { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: defaultCard || 'MOVE_4' } };
+    }
 
     case 'AWAITING_PURCHASE':
       return { type: 'DECLINE_PURCHASE' };

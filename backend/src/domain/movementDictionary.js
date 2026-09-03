@@ -3,35 +3,50 @@
  * Dùng cho chế độ Đột Phá (ASYMMETRIC) để thay thế xúc xắc.
  */
 export const MOVEMENT_CARDS = {
-  'MOVE_1': { steps: 1, direction: 1, cost: 0, description: 'Đi 1 bước chậm rãi.' },
-  'MOVE_2': { steps: 2, direction: 1, cost: 0, description: 'Đi 2 bước.' },
-  'MOVE_3': { steps: 3, direction: 1, cost: 0, description: 'Đi 3 bước cơ bản.' },
-  'MOVE_4': { steps: 4, direction: 1, cost: 0, description: 'Đi 4 bước.' },
+  // Nền tảng - Giữ nhịp độ (x2 weight)
   'MOVE_5': { steps: 5, direction: 1, cost: 0, description: 'Đi 5 bước.' },
-  'MOVE_6': { steps: 6, direction: 1, cost: 0, description: 'Đi 6 bước xa.' },
+  'MOVE_6': { steps: 6, direction: 1, cost: 0, description: 'Đi 6 bước.' },
+  'MOVE_7': { steps: 7, direction: 1, cost: 0, description: 'Đi 7 bước.' },
+  'MOVE_8': { steps: 8, direction: 1, cost: 0, description: 'Đi 8 bước.' },
+  'MOVE_9': { steps: 9, direction: 1, cost: 0, description: 'Đi 9 bước.' },
 
-  // [CÂN BẰNG]: Thẻ đi xa nhưng mất tiền
-  'SPRINT_6': { steps: 6, direction: 1, cost: 50, description: 'Chạy nước rút 6 bước, tốn 50$ lộ phí.' },
-  'SPRINT_8': { steps: 8, direction: 1, cost: 100, description: 'Chạy nước rút 8 bước, tốn 100$ lộ phí.' },
+  // Độ chính xác phải mua
+  'STEP_1': { steps: 1, direction: 1, cost: 50, description: 'Đi 1 bước (50$).' },
+  'STEP_2': { steps: 2, direction: 1, cost: 50, description: 'Đi 2 bước (50$).' },
+  'STEP_3': { steps: 3, direction: 1, cost: 50, description: 'Đi 3 bước (50$).' },
 
-  // [CÂN BẰNG]: Thẻ đi lùi (có thể dùng để né mìn phía trước)
-  'BACKUP_1': { steps: 1, direction: -1, cost: 0, description: 'Lùi lại 1 bước.' },
-  'BACKUP_2': { steps: 2, direction: -1, cost: 0, description: 'Lùi lại 2 bước.' },
-  'BACKUP_3': { steps: 3, direction: -1, cost: 0, description: 'Lùi lại 3 bước.' },
+  // Bứt tốc
+  'SPRINT_12': { steps: 12, direction: 1, cost: 100, description: 'Chạy bứt tốc 12 bước (100$).' },
 
-  // [CÂN BẰNG]: Thẻ xổ số (cho ai thích may rủi)
-  'MOVE_RANDOM_1_6': { steps: -1, direction: 1, cost: 0, description: 'Đổ 1 viên xúc xắc ngẫu nhiên (1-6 bước).' },
+  // Lùi
+  'BACKUP_3': { steps: 3, direction: -1, cost: 0, description: 'Đi lùi 3 bước.' },
+
+  // May rủi
   'MOVE_RANDOM_2_12': { steps: -2, direction: 1, cost: 0, description: 'Đổ 2 viên xúc xắc ngẫu nhiên (2-12 bước).' },
+
+  // Miễn nhiễm pass-through (trả giá bằng nhịp độ chậm)
+  'JUMP_2': { steps: 2, direction: 1, cost: 0, ignorePassThrough: true, description: 'Nhảy cóc 2 bước (Miễn nhiễm hiệu ứng lướt).' },
+  'JUMP_3': { steps: 3, direction: 1, cost: 0, ignorePassThrough: true, description: 'Nhảy cóc 3 bước (Miễn nhiễm hiệu ứng lướt).' },
 };
 
+// Mảng 18 lá rút có hoàn lại (đã áp dụng weight)
+const DECK_ARRAY = [
+  'MOVE_5', 'MOVE_5', 'MOVE_6', 'MOVE_6', 'MOVE_7', 'MOVE_7', 'MOVE_8', 'MOVE_8', 'MOVE_9', 'MOVE_9',
+  'STEP_1', 'STEP_2', 'STEP_3',
+  'SPRINT_12',
+  'BACKUP_3',
+  'MOVE_RANDOM_2_12',
+  'JUMP_2', 'JUMP_3'
+];
+
 /**
- * Trả về 3 thẻ bài ngẫu nhiên để thêm vào tay người chơi
+ * Trả về N thẻ bài ngẫu nhiên để thêm vào tay người chơi (Rút có hoàn lại)
+ * @param {number} count - Số lượng bài cần rút
  */
-export function drawMovementHand() {
-  const keys = Object.keys(MOVEMENT_CARDS);
+export function drawMovementHand(count = 1) {
   const hand = [];
-  for (let i = 0; i < 3; i++) {
-    const randomKey = keys[Math.floor(Math.random() * keys.length)];
+  for (let i = 0; i < count; i++) {
+    const randomKey = DECK_ARRAY[Math.floor(Math.random() * DECK_ARRAY.length)];
     hand.push(randomKey);
   }
   return hand;
