@@ -25,7 +25,7 @@ import { passThroughEffect } from './synergyEngine.js';
  * @param {object} [options]
  * @param {import('../domain/tile.js').Tile[]} [options.boardTiles] - required for pass-through; omit for movement-only
  * @param {boolean} [options.ignorePassThrough] - JUMP cards (movementDictionary.js) cross immune
- * @returns {{newPosition: number, passedGo: boolean, stoppedByTrap: boolean, stepsLost: number, tolls: {ownerId: string, amount: number, tileId: string}[]}}
+ * @returns {{newPosition: number, passedGo: boolean, stoppedByTrap: boolean, stepsLost: number, tolls: object[], cardEffects: object[]}}
  */
 export function resolveMovement(gameState, playerId, steps, direction = 1, boardTileCount, options = {}) {
   const player = gameState.players.find((p) => p.id === playerId);
@@ -33,7 +33,7 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
 
   if (gameState.ruleset === 'CLASSIC') {
     const classic = classicMovePlayer(player.currentPosition, steps, boardTileCount);
-    return { ...classic, stoppedByTrap: false, stepsLost: 0, tolls: [] };
+    return { ...classic, stoppedByTrap: false, stepsLost: 0, tolls: [], cardEffects: [] };
   }
 
   const { boardTiles = null, ignorePassThrough = false } = options;
@@ -44,6 +44,7 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
   let stoppedByTrap = false;
   let stepsLost = 0;
   const tolls = [];
+  const cardEffects = [];
 
   // A guard, not a rule: CONTROL removes steps, and a long enough chain of
   // owned CONTROL tiles could in principle keep removing them. The simulation
@@ -95,8 +96,14 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
       if (remaining <= 0) break;
     } else if (effect.type === 'TOLL') {
       tolls.push({ ownerId: effect.ownerId, amount: effect.amount, tileId: tile.id });
+    } else {
+      // CARD_REROLL / REVEAL_NEXT_CARD. Returned rather than applied because
+      // both touch player hands, and this function is deliberately pure —
+      // handlePlayMovementCard owns every mutation, the same split the tolls
+      // above already use for money.
+      cardEffects.push({ ...effect, tileId: tile.id });
     }
   }
 
-  return { newPosition: currentPos, passedGo, stoppedByTrap, stepsLost, tolls };
+  return { newPosition: currentPos, passedGo, stoppedByTrap, stepsLost, tolls, cardEffects };
 }

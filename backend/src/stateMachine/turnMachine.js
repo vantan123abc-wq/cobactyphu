@@ -164,9 +164,10 @@
 
 import { movePlayer } from '../engine/movement.js';
 import { resolveMovement } from '../engine/movementMiddleware.js';
-import { MOVEMENT_CARDS, drawMovementHand } from '../domain/movementDictionary.js';
+import { MOVEMENT_CARDS, drawMovementHand, HAND_SIZE, HAND_CAP } from '../domain/movementDictionary.js';
 import { resolveTile, BUYABLE_TILE_TYPES } from '../engine/resolveTile.js';
 import { calculateFinalRent } from '../engine/calculateRentMiddleware.js';
+import { landingEffect } from '../engine/synergyEngine.js';
 import { checkSolvency } from '../engine/bankruptcy.js';
 import { sendToJail, JAIL_FINE, useCard, rollForExit } from '../engine/jail.js';
 import { applyTransaction } from '../economy/applyTransaction.js';
@@ -1225,7 +1226,8 @@ function resolveLanding(gameState, boardTiles, playerId, diceTotal, now) {
         property,
         holdingsFor(gameState, boardTiles, owner.id),
         tile.groupId ? boardTiles.filter((t) => t.groupId === tile.groupId) : undefined,
-        diceTotal
+        diceTotal,
+        boardTiles
       );
       // K01/K02 (2026-08-22 deck) — GameState.rentModifierPercent's own
       // global/round-scoped modifier, layered on here rather than inside
@@ -1242,7 +1244,21 @@ function resolveLanding(gameState, boardTiles, playerId, diceTotal, now) {
       const discount = payer.nextRentDiscount;
       const discountAmount = discount ? Math.min(Math.round((afterGlobalModifier * discount.percent) / 100), discount.max) : 0;
       const rentAmount = Math.max(0, afterGlobalModifier - discountAmount);
-      const stateAfterDiscountConsumed = discount ? replacePlayer(gameState, { ...payer, nextRentDiscount: null }) : gameState;
+      const stateWithDiscountConsumed = discount ? replacePlayer(gameState, { ...payer, nextRentDiscount: null }) : gameState;
+
+      // ASYMMETRIC landing riders (synergyEngine.landingEffect): ECONOMY's
+      // 2-card draw and DENIAL's hand reveal. Applied BEFORE the rent settles
+      // so they survive even when the rent turns out to be $0 (the early
+      // return just below) or bankrupts the payer — the owner earned the
+      // rider by being landed on, independently of whether money changes
+      // hands. Returns its input untouched for CLASSIC and for any tile whose
+      // owner has not reached tier 1.
+      const rider = gameState.ruleset === 'ASYMMETRIC'
+        ? landingEffect(stateWithDiscountConsumed, boardTiles, tile, playerId)
+        : null;
+      const stateAfterDiscountConsumed = rider
+        ? applyCardEffect(stateWithDiscountConsumed, rider, playerId)
+        : stateWithDiscountConsumed;
 
       // Rent Risk Choice, REVISED 2026-08-25 — real user correction (see
       // BOARD_SPECIFICATION.md's own entry for the full before/after and the
@@ -1557,6 +1573,71 @@ function resolveDrawingCard(gameState, boardTiles, playerId, now) {
  * @param {object} action
  * @param {string} [now]
  */
+/**
+ * Applies one ECONOMY/DENIAL rider (synergyEngine's CARD_REROLL /
+ * REVEAL_NEXT_CARD / OWNER_DRAWS / REVEAL_HAND) to a game state.
+ *
+ * RANDOMNESS NOTE — this calls drawMovementHand(), which reaches for
+ * Math.random() directly, so this state machine is not pure across this path.
+ * That is deliberate and pre-existing rather than new: startTurn() has drawn
+ * the same way since the mode was sketched, and making only this call site
+ * deterministic would leave the machine impure anyway while splitting one
+ * mechanic across two conventions. Nothing here is exploitable — a client
+ * cannot influence Math.random, and idempotency.js caches results rather than
+ * re-executing, so a retry replays the same draw. Migrating BOTH call sites
+ * to an injected randomSource (the serverGeneratedFields convention every
+ * dice/probability path already uses) is real debt and belongs in its own
+ * change, where the fuzz harness can be updated with it.
+ */
+function applyCardEffect(gameState, effect, victimId) {
+  const victim = gameState.players.find((p) => p.id === victimId);
+  const owner = gameState.players.find((p) => p.id === effect.ownerId);
+  if (!victim || !owner) return gameState;
+
+  if (effect.type === 'CARD_REROLL') {
+    // Size-preserving by construction: discard exactly one, draw exactly one.
+    // An empty hand is a no-op rather than an error — PLAYING_CARD's own
+    // invariant guarantees a non-empty hand, and a rider firing mid-movement
+    // is the wrong place to enforce someone else's invariant.
+    const hand = victim.movementHand ?? [];
+    if (hand.length === 0) return gameState;
+    const discardIndex = Math.floor(Math.random() * hand.length);
+    const rerolled = [...hand.slice(0, discardIndex), ...hand.slice(discardIndex + 1), ...drawMovementHand(1)];
+    let next = replacePlayer(gameState, { ...victim, movementHand: rerolled });
+
+    // The owner's half. HAND_CAP, not HAND_SIZE — the whole point of ECONOMY
+    // is accumulating options past what a turn hands you.
+    const ownerHand = owner.movementHand ?? [];
+    if (ownerHand.length < HAND_CAP) {
+      const refreshedOwner = next.players.find((p) => p.id === owner.id);
+      next = replacePlayer(next, { ...refreshedOwner, movementHand: [...ownerHand, ...drawMovementHand(1)] });
+    }
+    return next;
+  }
+
+  if (effect.type === 'OWNER_DRAWS') {
+    const ownerHand = owner.movementHand ?? [];
+    const room = Math.max(0, HAND_CAP - ownerHand.length);
+    const drawCount = Math.min(effect.amount, room);
+    if (drawCount === 0) return gameState;
+    return replacePlayer(gameState, { ...owner, movementHand: [...ownerHand, ...drawMovementHand(drawCount)] });
+  }
+
+  // REVEAL_NEXT_CARD / REVEAL_HAND — recorded, but see synergyEngine's own
+  // warning: socketServer broadcasts every hand to every player already, so
+  // these are inert until per-recipient redaction exists.
+  if (effect.type === 'REVEAL_NEXT_CARD' || effect.type === 'REVEAL_HAND') {
+    const existing = (victim.handRevealedTo ?? []).filter((r) => r.viewerId !== effect.ownerId);
+    const untilRound = gameState.roundNumber + (effect.rounds ?? 1);
+    return replacePlayer(gameState, {
+      ...victim,
+      handRevealedTo: [...existing, { viewerId: effect.ownerId, untilRound, scope: effect.type === 'REVEAL_HAND' ? 'FULL' : 'NEXT_CARD' }],
+    });
+  }
+
+  return gameState;
+}
+
 function handlePlayMovementCard(gameState, boardTiles, action, now) {
   const { cardId } = action.payload;
   const player = getCurrentPlayer(gameState);
@@ -1606,7 +1687,7 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
     );
   }
 
-  const { newPosition, passedGo, stoppedByTrap, tolls } = resolveMovement(
+  const { newPosition, passedGo, stoppedByTrap, tolls, cardEffects } = resolveMovement(
     stateAfterCost,
     player.id,
     steps,
@@ -1639,6 +1720,13 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
     });
     stateAfterCost = statePaid;
     transactions.push(transaction);
+  }
+
+  // ECONOMY / DENIAL riders, applied in crossing order. Kept out of
+  // resolveMovement (which stays pure) for the same reason the tolls above
+  // are: they mutate players, and every mutation belongs on this side.
+  for (const effect of cardEffects) {
+    stateAfterCost = applyCardEffect(stateAfterCost, effect, player.id);
   }
 
   // Giống như khúc dưới của moveAndResolve
@@ -1791,8 +1879,8 @@ function startTurn(gameState) {
   // Tự động rút thêm thẻ nếu là Đột Phá và tay bài chưa đủ 2
   if (gameState.ruleset === 'ASYMMETRIC') {
     const currentHand = player.movementHand || [];
-    if (currentHand.length < 2) {
-      const drawnCards = drawMovementHand(2 - currentHand.length);
+    if (currentHand.length < HAND_SIZE) {
+      const drawnCards = drawMovementHand(HAND_SIZE - currentHand.length);
       player = { ...player, movementHand: [...currentHand, ...drawnCards] };
       state = replacePlayer(state, player);
     }
