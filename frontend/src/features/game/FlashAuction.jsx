@@ -175,7 +175,12 @@ export default function FlashAuction() {
         )}
 
         <div className={styles.bidInfo}>
-          <span className={styles.bidLabel}>Giá cao nhất</span>
+          {auction.basePrice !== auction.currentBid && (
+            <span className={styles.bidLabel} style={{ fontSize: '12px', color: '#aaa' }}>
+              Giá khởi điểm: ${auction.basePrice}
+            </span>
+          )}
+          <span className={styles.bidLabel}>Giá cao nhất hiện tại</span>
           {/* key={currentBid} remounts the node on every raise so the CSS
               animation replays each time, no JS animation-state tracking needed */}
           <span key={auction.currentBid} className={styles.bidAmount}>

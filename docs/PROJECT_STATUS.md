@@ -2056,6 +2056,35 @@ The user listed **C09_LUAT_SU as a keepable card**. It is not — `C09` is `INST
 ### Out of scope: the ASYMMETRIC movement-card feature
 `handlePlayMovementCard` (turnMachine.js ~1560), `MOVEMENT_CARDS`, `player.movementHand`, and the trap logic in `movementMiddleware.js` are an unfinished parallel-session feature (`steps = cardDef.steps > 0 ? cardDef.steps : 1; // Tạm mock`, and raw `throw new Error(...)` instead of a typed error class so `errorCodeFor` would map it to `INTERNAL_ERROR`). Not touched — it is theirs and not part of the event-card system.
 
+## Deployed-game latency — diagnosis and fixes, 2026-09-03
+
+User deployed (frontend on Vercel, backend on Render free tier, Supabase) to play with friends and reported heavy lag on every action. The frontend/backend split is fine; the latency came from four compounding sources, three fixed in code and one needing an infra change.
+
+### Fixed in code
+
+**1. `getRoomById` on every single game action — the biggest one.**
+`handleGameAction` ran `roomRepository.getRoomById(supabase, roomId)` at the top of *every* `C2S_GAME_ACTION`. That helper is **two sequential Supabase queries** (`rooms` row, then `fetchPlayers`). So every roll / buy / bid / build / end-turn paid two cross-region DB round trips before the engine was even touched — on a Render(US)⇄Supabase(US)⇄player(SEA) path, easily 200–800ms of pure overhead per move.
+
+It was entirely redundant during gameplay: the hot in-memory `GameState` already answers every question it was consulted for — game exists (`gameState` non-null), caller is a player (`findGamePlayer`, checked a few lines down anyway), still running (`gameState.status`) — and the participant roster is frozen once a match starts. Restructured so the hot state is resolved first (an in-memory `Map` hit, no I/O) and `getRoomById` runs **only on a cold miss** (server restart mid-match), where correctness matters and the one-time cost is irrelevant. New regression test pins that `getRoomById` is not called on the hot path.
+
+**2. `saveSnapshot` blocked the `END_TURN` broadcast.**
+`persistAndBroadcast` did `await saveSnapshot(...)` (two more sequential Supabase upserts) *before* `io.emit('S2C_STATE_UPDATE')`. So on every turn hand-off the next player waited a full DB write round trip just to see it had become their turn. Reordered: `setGameState` (in-memory, authoritative) → `emit` → *then* the durable writes, run concurrently with `Promise.all`, errors logged not thrown. Durability has never gated gameplay in this design (the hot store is the source of truth; the snapshot is only a cold-restart fallback), so this is free.
+
+**3. Socket.IO spent the first seconds of every session on HTTP long-polling.**
+Neither client nor server specified `transports`, so Socket.IO used its default polling-then-upgrade: the initial connection and first messages go over HTTP long-polling (each message its own request) before switching to a real WebSocket. Both ends now list `transports: ['websocket', 'polling']` — WebSocket first, polling only as a fallback for networks that block it. Server ping tuning too: `pingInterval: 20000 / pingTimeout: 30000` (was 25/20) so a merely-late pong on a trans-Pacific link doesn't trigger a full disconnect → re-auth → `C2S_RECONNECT` → whole-state resync, which was itself a visible stall.
+
+### Needs an infra change (cannot be done from code)
+
+**4. Render service region = Oregon (US-West).** `render.yaml` had no `region`, so it defaulted to Oregon. For players in Vietnam that is ~170–200ms round trip on *every* socket message. `region: singapore` (~30–50ms from Vietnam) is now in `render.yaml`, but **Render cannot move an existing service between regions** — it takes effect only on a service created fresh from the Blueprint, or by deleting and recreating the current service.
+
+**Also flagged, not changed:**
+- **Render `plan: free`** spins the service down after ~15 min idle (~50s cold start on the next request — the long freeze on the first action of a session) and runs on a small shared CPU. `$7/mo` Starter removes both. Left as `free` in the yaml so a card-less Blueprint deploy still works.
+- **Supabase project region** — if the project is in a US region, `saveSnapshot` / `getRoomById` still cross an ocean even from Singapore. Supabase can't relocate a project either; a new project in `ap-southeast-1` (Singapore) would pair well with the Render change. Lower priority now that these calls are off the hot path.
+- **Turn timers** (`stateMachine/timers.js`): `TURN_START`/`AWAITING_PURCHASE` are 15s, `ROLLING`/`JAIL_DECISION` 20s. Tight for casual play — a distracted friend can have their turn auto-skipped. Raising the decision phases to ~30s would make a friends game far more forgiving. Not changed here because it is a game-feel decision, not a latency bug.
+
+### Verification
+Backend **728 pass / 0 fail**, frontend lint + build clean. The real-world effect needs a redeploy to confirm, but the per-action Supabase round trips are gone from the hot path and measurable in the code.
+
 ## Known gaps flagged in `SECURITY_DESIGN.md` (not yet closed)
 
 1. ~~`build_house`/`sell_house`/`mortgage`/`unmortgage`/`propose_trade`/`respond_trade` have no Socket.IO event handlers yet~~ — **fully closed 2026-08-18** (all six), see "Backend slice — property economy" and "Backend slice — Trade System" above.

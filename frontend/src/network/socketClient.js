@@ -270,7 +270,16 @@ export function connectSocket(token) {
   // since the callback form always reads the *current* `authToken` instead,
   // a real refresh (updateAuthToken below) now actually reaches the next
   // attempt.
-  socket = io(SOCKET_URL, { auth: (cb) => cb({ token: authToken }) })
+  socket = io(SOCKET_URL, {
+    auth: (cb) => cb({ token: authToken }),
+    // PERF (2026-09-03): connect over WebSocket immediately instead of the
+    // default polling-then-upgrade dance. The default costs the first few
+    // seconds of a session on HTTP long-polling — every game message its own
+    // request/response — before switching to a real socket. `polling` stays
+    // as a second entry so a network that blocks WebSocket still connects,
+    // just more slowly. Pairs with the server's matching transport order.
+    transports: ['websocket', 'polling'],
+  })
   attachListeners(socket)
   return socket
 }

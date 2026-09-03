@@ -2,10 +2,27 @@ services:
   - type: web
     name: cobactyphu-backend
     env: node
+    # region: default is Render's Oregon (US-West). For players in
+    # Vietnam/SEA that adds ~170-200ms round trip to EVERY socket message
+    # (roll, buy, bid, end turn), on top of the socket protocol overhead —
+    # it was the second-largest cause of the deployed game feeling laggy.
+    # Singapore is ~30-50ms from Vietnam: a 4x cut on every message.
+    #
+    # Render CANNOT move an existing service between regions — this only
+    # takes effect on a service created fresh from this file (Blueprint), or
+    # by deleting and recreating the current service. See PROJECT_STATUS.md.
+    region: singapore
     plan: free
     rootDir: backend
     buildCommand: npm install
     startCommand: node src/server.js
+    # NOTE on `plan: free` — Render's free web services spin down after ~15
+    # minutes with no traffic and take ~50s to cold-start on the next
+    # request, and run on a small shared CPU. For a session with friends the
+    # cold start shows up as a long freeze on the first action; under any
+    # load the shared CPU makes every turn slower. The $7/mo Starter plan
+    # removes both. Left as `free` so a Blueprint deploy still works without
+    # a card on file — change to `starter` when you want it smooth.
     envVars:
       - key: SUPABASE_URL
         value: https://qpbyfgzujwzueprzuurk.supabase.co

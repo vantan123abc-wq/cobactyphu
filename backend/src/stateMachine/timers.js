@@ -32,16 +32,18 @@ import { EVENT_CARDS } from '../domain/eventDictionary.js';
 // is itself "[OPEN] — no timeout proposed" in that same table. Extending
 // this map is how each gets picked up later, not a rework.
 //
-// FLASH_AUCTION_ACTIVE: 15 (P07-T09) — a placeholder, not a transcription
-// of §0's own FLASH_AUCTION_WINDOW_SECONDS (12) / FLASH_AUCTION_BID_RESET_SECONDS
-// (3). This module's model is one fixed duration per phase, replaced
-// wholesale on every TimerManager.start() call — it has no concept of "a
-// shorter timer that keeps resetting on new activity", which is what
-// Flash Auction's real two-number design needs (an initial window, then a
-// shorter per-bid extension). 15s is a single coarse stand-in for both
-// until that reset-on-bid behavior is actually built; flagged rather than
-// silently picking one of the two real documented numbers and calling it
-// equivalent, which it isn't.
+// FLASH_AUCTION_ACTIVE: 5s initial window, extended by FLASH_AUCTION_BID_EXTENSION_SECONDS
+// (5s) every time a new PLACE_BID lands. This replaces the old 15s flat
+// placeholder — socketServer.js's persistAndBroadcast handles the per-bid
+// reset by detecting PLACE_BID on a still-FLASH_AUCTION_ACTIVE result and
+// calling TimerManager.start() with a custom 5s deadline instead of the
+// phase's base duration.
+
+// Per-bid timer extension: each accepted PLACE_BID resets the auction
+// countdown to this many seconds, giving latecomers a fair chance to respond.
+// Exported so socketServer.js can use the same constant without duplicating it.
+export const FLASH_AUCTION_BID_EXTENSION_SECONDS = 5;
+
 export const TIMER_DURATIONS_SECONDS = Object.freeze({
   // GAME_DESIGN_SPEC.md §24's RECONNECT_GRACE_SECONDS (90s), wired
   // 2026-08-21 — not as its own separate disconnect-only timer, but by
@@ -61,7 +63,7 @@ export const TIMER_DURATIONS_SECONDS = Object.freeze({
   ROLLING: 20, // ROLL_TIMEOUT_SECONDS
   PLAYING_CARD: 30, // 30s to choose a movement card
   AWAITING_PURCHASE: 15, // PURCHASE_DECISION_TIMEOUT_SECONDS
-  FLASH_AUCTION_ACTIVE: 15, // placeholder — see comment above, not §0's real 12/3
+  FLASH_AUCTION_ACTIVE: 5, // 5s initial window; per-bid extension handled in socketServer.js (FLASH_AUCTION_BID_EXTENSION_SECONDS)
   // RENT_RISK_DECISION removed 2026-08-25 — Rent Risk Choice no longer
   // blocks on an owner decision at all (turnMachine.js's resolveLanding own
   // comment has the full story), so there is no phase left to time out.
