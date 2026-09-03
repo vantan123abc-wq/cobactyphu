@@ -394,6 +394,8 @@ function buildAuctionRoom() {
 
 function fakeIo() {
   const broadcasts = [];
+  const roomSockets = new Map(); // roomId -> Set<socketId>
+  const socketsById = new Map(); // socketId -> mock socket
   return {
     to(room) {
       return {
@@ -402,9 +404,125 @@ function fakeIo() {
         },
       };
     },
+    // Minimal real shape of io.sockets.adapter.rooms / io.sockets.sockets —
+    // socketsInRoom() (socketServer.js, ASYMMETRIC's per-viewer redaction
+    // fan-out) reads exactly this, the same way a real socket.io Server
+    // would after socket.join(). mockSocket()'s own .join() only records
+    // into the socket's local `_joined` array (no shared registry), so this
+    // needs its own explicit registration below rather than piggy-backing
+    // on that call.
+    sockets: { adapter: { rooms: roomSockets }, sockets: socketsById },
     _broadcasts: broadcasts,
+    // test-only: make `socket` discoverable in `room` via io.sockets.*,
+    // mirroring what a real socket.join(room) makes visible server-side.
+    _joinRoom(room, socket) {
+      if (!socket.id) socket.id = `mock-${socketsById.size}`;
+      socketsById.set(socket.id, socket);
+      if (!roomSockets.has(room)) roomSockets.set(room, new Set());
+      roomSockets.get(room).add(socket.id);
+    },
   };
 }
+
+// ── Per-viewer redaction (engine/stateRedaction.js), ASYMMETRIC only ───────
+// Real end-to-end coverage of broadcastStateUpdate/socketsInRoom — every
+// prior test in this file drives a CLASSIC gameState through the SAME
+// io.to(roomId).emit(...) path that existed before redaction, so none of
+// them would have caught a wiring mistake in the new ASYMMETRIC fan-out at
+// all. POST_ACTIONS -> END_TURN is used as the driving action specifically
+// because advanceTurn()'s own use of `boardTiles` is gated behind Final
+// Phase actually ending (round >= ~45) — unreachable from a fresh match —
+// so this needs no real board fixture, keeping the test's only moving part
+// the thing it's actually testing: who sees whose hand.
+function buildRedactionRoom() {
+  return {
+    id: 'room-1',
+    status: 'in_progress',
+    hostId: 'user-alice',
+    players: [
+      { playerId: 'user-alice', isHost: true },
+      { playerId: 'user-bob', isHost: false },
+    ],
+  };
+}
+
+function buildRedactionGameState() {
+  return createGameState({
+    id: 'g1',
+    roomId: 'room-1',
+    boardId: 'small',
+    status: 'in_progress',
+    ruleset: 'ASYMMETRIC',
+    phase: 'POST_ACTIONS',
+    currentTurnIndex: 0,
+    startedAt: '2026-09-03T00:00:00.000Z',
+    players: [
+      createPlayerGameState({ id: 'gp-bank', gameId: 'g1', isBank: true, currentBalance: 20000 }),
+      createPlayerGameState({
+        id: 'gp-alice', gameId: 'g1', playerId: 'user-alice', turnOrder: 0,
+        currentBalance: 1500, currentPosition: 0, movementHand: ['MOVE_5', 'JUMP_2'],
+      }),
+      createPlayerGameState({
+        id: 'gp-bob', gameId: 'g1', playerId: 'user-bob', turnOrder: 1,
+        currentBalance: 1500, currentPosition: 0, movementHand: ['SPRINT_12', 'BACKUP_3'],
+      }),
+    ],
+  });
+}
+
+test('ASYMMETRIC: each connected socket gets its OWN hand visible and every opponent hand hidden — never the shared room broadcast', async () => {
+  const roomRepository = fakeGameRoomRepository({ 'room-1': buildRedactionRoom() });
+  setGameState('room-1', buildRedactionGameState());
+  const io = fakeIo();
+
+  const aliceSocket = mockSocket();
+  aliceSocket.user = { id: 'user-alice' };
+  const bobSocket = mockSocket();
+  bobSocket.user = { id: 'user-bob' };
+  io._joinRoom('room-1', aliceSocket);
+  io._joinRoom('room-1', bobSocket);
+
+  handleGameAction(io, aliceSocket, roomRepository, undefined);
+  await aliceSocket._trigger('C2S_GAME_ACTION', {
+    roomId: 'room-1',
+    actionType: 'END_TURN',
+    payload: {},
+    clientActionId: 'end-1',
+  });
+
+  assert.equal(io._broadcasts.length, 0, 'ASYMMETRIC never uses the shared io.to(roomId).emit broadcast');
+
+  const aliceUpdate = aliceSocket._emitted.find((e) => e.event === 'S2C_STATE_UPDATE');
+  const bobUpdate = bobSocket._emitted.find((e) => e.event === 'S2C_STATE_UPDATE');
+  assert.ok(aliceUpdate && bobUpdate, 'both connected sockets receive their own S2C_STATE_UPDATE');
+
+  const alicePlayers = aliceUpdate.payload.gameState.players;
+  assert.deepEqual(alicePlayers.find((p) => p.id === 'gp-alice').movementHand, ['MOVE_5', 'JUMP_2'], "Alice's own hand, visible to her");
+  assert.deepEqual(alicePlayers.find((p) => p.id === 'gp-bob').movementHand, ['HIDDEN', 'HIDDEN'], "Bob's hand, hidden from Alice");
+
+  const bobPlayers = bobUpdate.payload.gameState.players;
+  assert.deepEqual(bobPlayers.find((p) => p.id === 'gp-bob').movementHand, ['SPRINT_12', 'BACKUP_3'], "Bob's own hand, visible to him");
+  assert.deepEqual(bobPlayers.find((p) => p.id === 'gp-alice').movementHand, ['HIDDEN', 'HIDDEN'], "Alice's hand, hidden from Bob");
+});
+
+test('CLASSIC: unaffected — still one shared io.to(roomId).emit broadcast, gameState untouched', async () => {
+  const roomRepository = fakeGameRoomRepository({ 'room-1': buildAuctionRoom() });
+  setGameState('room-1', buildAuctionGameState());
+  const io = fakeIo();
+  const socket = mockSocket();
+  socket.user = { id: 'user-bob' };
+
+  handleGameAction(io, socket, roomRepository, undefined);
+  await socket._trigger('C2S_GAME_ACTION', {
+    roomId: 'room-1',
+    actionType: 'PLACE_BID',
+    payload: { amount: 250 },
+    clientActionId: 'action-1',
+  });
+
+  assert.equal(io._broadcasts.length, 1);
+  assert.equal(socket._emitted.length, 0, 'no per-socket emit for CLASSIC — the room-wide broadcast is the only path');
+});
 
 test('C2S_GAME_ACTION success: a valid bid updates state and broadcasts S2C_STATE_UPDATE to the room', async () => {
   const roomRepository = fakeGameRoomRepository({ 'room-1': buildAuctionRoom() });
@@ -941,6 +1059,33 @@ test('USE_INVENTORY_CARD: a card that is not keepable is refused, whatever the c
   assert.equal(socket._emitted[0].payload.errorCode, 'CARD_NOT_KEEPABLE');
 });
 
+// FIX (2026-09-03): MOVEMENT_CARDS was referenced here without ever being
+// imported into socketServer.js — a plain ReferenceError on the very first
+// line of this branch, for EVERY movement card play from a live socket, not
+// only the random one. Uncaught for however long this branch existed because
+// this exact test never existed — nothing in this file previously called
+// serverGeneratedFields with actionType 'PLAY_MOVEMENT_CARD' at all.
+test('serverGeneratedFields: PLAY_MOVEMENT_CARD injects a server-rolled cardRoll only for the RANDOM card', () => {
+  const gameState = { ruleset: 'ASYMMETRIC' };
+
+  // MOVE_RANDOM_2_12 is movementDictionary.js's one `random: [2, 12]` card —
+  // randomSource 0 forces rollDice's own minimum (1+1=2).
+  assert.deepEqual(
+    serverGeneratedFields('PLAY_MOVEMENT_CARD', gameState, { cardId: 'MOVE_RANDOM_2_12' }, () => 0),
+    { cardRoll: 2 }
+  );
+
+  // A fixed-step card (no `random` marker) gets nothing injected — its
+  // step count is already fully determined by the card itself.
+  assert.deepEqual(serverGeneratedFields('PLAY_MOVEMENT_CARD', gameState, { cardId: 'MOVE_5' }, () => 0), {});
+
+  // An unknown cardId (a stale/tampered payload) is not this function's job
+  // to validate — handlePlayMovementCard's own `MOVEMENT_CARDS[cardId]`
+  // lookup downstream throws the real domain error for that; this just
+  // injects nothing rather than crashing.
+  assert.deepEqual(serverGeneratedFields('PLAY_MOVEMENT_CARD', gameState, { cardId: 'NOT_A_REAL_CARD' }, () => 0), {});
+});
+
 test('serverGeneratedFields: USE_INVENTORY_CARD gets a server-rolled dieFaceRoll, never the client-claimed one', () => {
   const gameState = createGameState({
     id: 'g1',
@@ -1438,6 +1583,22 @@ test('C2S_RECONNECT success: resyncs S2C_ROOM_JOINED + S2C_STATE_UPDATE to the s
   assert.deepEqual(socket._toEmitted[0].payload, { roomId: 'room-1', playerId: 'user-bob' });
 
   assert.equal(io._broadcasts.length, 1); // only the earlier disconnect broadcast (via io.to) — reconnect uses socket.to, not io.to
+});
+
+test('C2S_RECONNECT: ASYMMETRIC resync is redacted too — the reconnecting player\'s own hand intact, the opponent\'s hidden', async () => {
+  const roomRepository = fakeGameRoomRepository({ 'room-1': buildRedactionRoom() });
+  setGameState('room-1', buildRedactionGameState());
+  const io = fakeIo();
+  const socket = mockSocket();
+  socket.user = { id: 'user-bob' };
+
+  handleReconnect(io, socket, roomRepository, undefined);
+  await socket._trigger('C2S_RECONNECT', { roomId: 'room-1' });
+
+  const resync = socket._emitted.find((e) => e.event === 'S2C_STATE_UPDATE');
+  const players = resync.payload.gameState.players;
+  assert.deepEqual(players.find((p) => p.id === 'gp-bob').movementHand, ['SPRINT_12', 'BACKUP_3'], "Bob's own hand, visible on his own resync");
+  assert.deepEqual(players.find((p) => p.id === 'gp-alice').movementHand, ['HIDDEN', 'HIDDEN'], "Alice's hand stays hidden even on a resync");
 });
 
 test('C2S_RECONNECT: a non-member of the room is rejected with NOT_A_PARTICIPANT, same as C2S_JOIN_ROOM', async () => {

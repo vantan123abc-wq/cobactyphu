@@ -102,6 +102,18 @@ import { TimerManager, buildDefaultAction, TIMER_DURATIONS_SECONDS, FLASH_AUCTIO
 import * as gameRepository from '../../infrastructure/repositories/gameRepository.js';
 import { rollDice } from '../../engine/dice.js';
 import { EVENT_CARDS } from '../../domain/eventDictionary.js';
+// FIX (2026-09-03): MOVEMENT_CARDS was referenced below (serverGeneratedFields's
+// PLAY_MOVEMENT_CARD branch) without ever being imported — a plain
+// ReferenceError on the very first line that touches it, for EVERY movement
+// card play from a live socket, not just the random one. timers.js's own
+// buildDefaultAction default-action path imports it correctly, so an
+// ASYMMETRIC match could still limp along on AFK timeouts alone, but a real
+// player clicking a card crashed the handler outright. Uncaught by
+// socketServer.test.js because nothing in that file exercises
+// serverGeneratedFields('PLAY_MOVEMENT_CARD', ...) at all — zero coverage of
+// the one branch that needed this import.
+import { MOVEMENT_CARDS } from '../../domain/movementDictionary.js';
+import { maskGameState } from '../../engine/stateRedaction.js';
 
 // SECURITY_DESIGN.md "Known gaps" #5 — the one exemption to "every
 // C2S_GAME_ACTION must come from the current-turn player", checked in
@@ -404,7 +416,8 @@ export function handleReconnect(io, socket, roomRepository, supabase) {
       return;
     }
 
-    if (!findGamePlayer(gameState, socket.user.id)) {
+    const reconnectingPlayer = findGamePlayer(gameState, socket.user.id);
+    if (!reconnectingPlayer) {
       socket.emit('S2C_ACTION_REJECTED', {
         clientActionId: null,
         errorCode: 'NOT_A_PARTICIPANT',
@@ -418,7 +431,11 @@ export function handleReconnect(io, socket, roomRepository, supabase) {
     emitRoomJoined(socket, record);
     socket.emit('S2C_STATE_UPDATE', {
       stateVersion: gameState.stateVersion,
-      gameState,
+      // Same per-viewer redaction the room-wide broadcast gets
+      // (broadcastStateUpdate) — a reconnect resync is exactly the kind of
+      // moment that must not hand a reconnecting player a stale, still-
+      // unmasked copy of everyone else's hand.
+      gameState: maskGameState(gameState, reconnectingPlayer.id),
       transactions: [], // a resync, not a state-changing action — nothing to animate
       // Read-only (P10-T04) — GAME_STATE_MACHINE.md §5/§7 are explicit that
       // reconnecting does NOT reset or extend an already-running state
@@ -465,6 +482,59 @@ function errorCodeFor(err) {
 // handleReconnect (P10-T03).
 function findGamePlayer(gameState, userId) {
   return gameState.players.find((p) => p.playerId === userId);
+}
+
+/**
+ * Every locally-connected Socket currently in Socket.IO room `roomId`, as
+ * real Socket instances (not the RemoteSocket/`.data` proxy shape
+ * `io.in(roomId).fetchSockets()` returns) — this project runs a single
+ * process with the default in-memory adapter (no Redis/cluster adapter,
+ * server.js's own header), so every socket ever placed in a room by
+ * socket.join() is always reachable locally through io.sockets.sockets, and
+ * going through it directly is what keeps arbitrary properties like
+ * socket.user (set on the real instance, not on socket.data) intact —
+ * exactly what per-viewer redaction below needs.
+ * @param {import('socket.io').Server} io
+ * @param {string} roomId
+ * @returns {import('socket.io').Socket[]}
+ */
+function socketsInRoom(io, roomId) {
+  const socketIds = io.sockets.adapter.rooms.get(roomId);
+  if (!socketIds) return [];
+  const sockets = [];
+  for (const id of socketIds) {
+    const socket = io.sockets.sockets.get(id);
+    if (socket) sockets.push(socket);
+  }
+  return sockets;
+}
+
+/**
+ * S2C_STATE_UPDATE, redacted per recipient for ASYMMETRIC — replaces every
+ * plain `io.to(roomId).emit('S2C_STATE_UPDATE', payload)` call. CLASSIC
+ * takes the exact same single-broadcast path it always has (one shared
+ * Socket.IO packet, one gameState reference, zero redaction overhead) —
+ * maskGameState's own CLASSIC branch is a same-reference no-op, but this
+ * still skips the whole per-socket fan-out for CLASSIC rather than paying
+ * per-socket JSON serialization for a mode with nothing to hide.
+ * ASYMMETRIC fans out one masked emit per socket currently in the room —
+ * unmapped players (someone with the tab closed) simply get no emit, same
+ * as a broadcast never reached them either.
+ * @param {import('socket.io').Server} io
+ * @param {string} roomId
+ * @param {import('../../domain/gameState.js').GameState} gameState - UNMASKED, real state
+ * @param {object} payloadRest - stateVersion/transactions/deadlineAt, spread as-is into every recipient's payload
+ */
+function broadcastStateUpdate(io, roomId, gameState, payloadRest) {
+  if (gameState.ruleset !== 'ASYMMETRIC') {
+    io.to(roomId).emit('S2C_STATE_UPDATE', { ...payloadRest, gameState });
+    return;
+  }
+
+  for (const socket of socketsInRoom(io, roomId)) {
+    const viewer = findGamePlayer(gameState, socket.user?.id);
+    socket.emit('S2C_STATE_UPDATE', { ...payloadRest, gameState: maskGameState(gameState, viewer?.id) });
+  }
 }
 
 /**
@@ -547,9 +617,8 @@ async function persistAndBroadcast(io, supabase, roomId, actionType, previousGam
   // and the hot store is the real source of truth — the snapshot is only a
   // cold-restart fallback), so moving it after the emit costs nothing in
   // correctness and removes that stall entirely.
-  io.to(roomId).emit('S2C_STATE_UPDATE', {
+  broadcastStateUpdate(io, roomId, result.gameState, {
     stateVersion: result.gameState.stateVersion,
-    gameState: result.gameState,
     transactions: result.transactions,
     deadlineAt, // GAME_STATE_MACHINE.md §7: "broadcasts an absolute deadlineAt timestamp" — null when the current phase isn't timed
   });
