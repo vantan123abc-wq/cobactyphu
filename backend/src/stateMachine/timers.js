@@ -17,6 +17,7 @@
 // belongs to. TimerManager itself has no GameState dependency at all.
 
 import { rollDice } from '../engine/dice.js';
+import { MOVEMENT_CARDS } from '../domain/movementDictionary.js';
 import { calculateSellHouse, calculateMortgage } from '../economy/propertyEconomy.js';
 // AWAITING_EVENT_CHOICE's default needs the real card to pick a safe option
 // from — same import infrastructure/websocket/socketServer.js already takes
@@ -314,7 +315,18 @@ export function buildDefaultAction(phase, gameState, boardTiles = [], randomSour
       if (!defaultCard) {
         throw new Error(`buildDefaultAction: player '${currentPlayer.id}' has no movement cards in PLAYING_CARD phase — violates invariant`);
       }
-      return { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: defaultCard } };
+      // Same server-generated-randomness rule the live-click path follows
+      // (socketServer.js's serverGeneratedFields): a `random` card needs a
+      // rolled step count, and this path must supply it too — otherwise an
+      // AFK player defaulting onto MOVE_RANDOM_2_12 throws instead of moving.
+      const def = MOVEMENT_CARDS[defaultCard];
+      return {
+        type: 'PLAY_MOVEMENT_CARD',
+        payload: {
+          cardId: defaultCard,
+          ...(def?.random ? { cardRoll: rollDice(0, randomSource).total } : {}),
+        },
+      };
     }
 
     case 'AWAITING_PURCHASE':

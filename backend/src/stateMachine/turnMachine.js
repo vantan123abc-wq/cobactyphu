@@ -1606,20 +1606,47 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
     );
   }
 
-  const { newPosition, passedGo, stoppedByTrap } = resolveMovement(
+  const { newPosition, passedGo, stoppedByTrap, tolls } = resolveMovement(
     stateAfterCost,
     player.id,
     steps,
     cardDef.direction,
-    boardTileCount
+    boardTileCount,
+    { boardTiles, ignorePassThrough: cardDef.ignorePassThrough === true }
   );
+
+  // Pass-through tolls settle BEFORE the move lands, in crossing order — the
+  // player really did drive past those tiles on the way here. Settled through
+  // applyTransaction rather than by adjusting balances directly so each one
+  // writes a real ledger row and stays inside the "balance never goes
+  // negative" invariant every other payment path already respects.
+  //
+  // Deliberately NOT using settleDebt: a toll that the player cannot afford
+  // should not open a liquidation phase in the middle of movement resolution.
+  // It is capped at what they can actually pay, and the shortfall is dropped.
+  // That is the lenient reading, chosen because the alternative — a
+  // bankruptcy triggered from inside a movement loop, before the player has
+  // even landed — has no defined place in the phase machine yet.
+  for (const toll of tolls) {
+    const payer = stateAfterCost.players.find((p) => p.id === player.id);
+    const payable = Math.min(toll.amount, payer.currentBalance);
+    if (payable <= 0) break;
+    const { gameState: statePaid, transaction } = applyTransaction(stateAfterCost, {
+      fromPlayerId: player.id,
+      toPlayerId: toll.ownerId,
+      amount: payable,
+      transactionType: 'pass_through_toll',
+    });
+    stateAfterCost = statePaid;
+    transactions.push(transaction);
+  }
 
   // Giống như khúc dưới của moveAndResolve
   let finalPlayer = stateAfterCost.players.find((p) => p.id === player.id);
   finalPlayer = { ...finalPlayer, currentPosition: newPosition };
-  
+
   let stateAfterMove = replacePlayer(stateAfterCost, finalPlayer);
-  
+
   if (passedGo) {
     const bank = getBankPlayer(stateAfterMove);
     const { gameState: stateWithGo, transaction: goTx } = applyTransaction(stateAfterMove, {

@@ -42,6 +42,14 @@ export const TRANSACTION_TYPES = Object.freeze([
   'rent_gamble',
   'bankruptcy_transfer',
   'free_parking_jackpot', // Phase 14 (2026-08-19), migration 0004 — see that file's own header
+  // ASYMMETRIC ruleset, migration 0007. `movement_card_cost` closes a live
+  // bug rather than adding a feature: handlePlayMovementCard has been passing
+  // it since the mode was first sketched, and because it was never listed
+  // here, applyTransaction threw on every movement card with a cost — 4 of
+  // the deck's 18 cards (STEP_1/2/3 at $50, SPRINT_12 at $100). Any player
+  // who drew and played one got an error instead of a move.
+  'movement_card_cost',
+  'pass_through_toll', // EXECUTION's per-crossing charge, ASYMMETRIC_MODE_SPEC.md §3.2
 ]);
 
 /**
