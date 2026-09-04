@@ -1,5 +1,5 @@
 // Frontend mirror of backend/src/engine/synergyEngine.js's archetype system
-// (Hệ Tộc — ASYMMETRIC_MODE_SPEC.md §2/§3), for the board's own "which tiles
+// (Thế Lực — ASYMMETRIC_MODE_SPEC.md §2/§3), for the board's own "which tiles
 // are currently powering a synergy" highlight.
 //
 // Mirrored rather than shared, same standing as every other duplicated

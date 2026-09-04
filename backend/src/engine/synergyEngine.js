@@ -1,4 +1,4 @@
-// Synergy (Hệ Tộc) evaluation for the ASYMMETRIC ruleset —
+// Synergy (Thế Lực) evaluation for the ASYMMETRIC ruleset —
 // docs/ASYMMETRIC_MODE_SPEC.md §2.
 //
 // Set levels are counted across a whole ARCHETYPE, not per colour group.

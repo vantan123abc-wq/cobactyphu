@@ -203,7 +203,7 @@ export default function Lobby() {
       </div>
 
       <div style={{ textAlign: 'center', marginBottom: '24px', color: '#666', fontWeight: 'bold' }}>
-        Chế độ: {room.ruleset === 'ASYMMETRIC' ? 'Đột Phá (Đặc Quyền Nhóm Màu)' : 'Cổ Điển'}
+        Chế độ: {room.ruleset === 'ASYMMETRIC' ? 'Đột Phá (Thế Lực Nhóm Màu)' : 'Cổ Điển'}
       </div>
 
       <ul className={styles.playerList}>

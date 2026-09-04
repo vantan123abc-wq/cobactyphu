@@ -108,7 +108,7 @@ export default function LobbyDiagnostic() {
               style={{ width: '100%', textAlign: 'center' }}
             >
               <option value="CLASSIC">Cổ Điển (Nhân Đôi Gốc)</option>
-              <option value="ASYMMETRIC">Đột Phá (Nội Tại Nhóm Màu)</option>
+              <option value="ASYMMETRIC">Đột Phá (Thế Lực Nhóm Màu)</option>
             </select>
           </div>
 

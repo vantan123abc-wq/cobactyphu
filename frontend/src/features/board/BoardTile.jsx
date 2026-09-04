@@ -43,7 +43,7 @@ const MAX_UPGRADE_LEVEL = 5
  * @param {number} [props.upgradeLevel] - property.upgradeLevel (0 = no houses, 1-4 = houses, 5 = hotel); 0 when unowned/not ownable. `mortgaged` is deliberately not shown here — PropertyManager.jsx (opened by selecting the tile) owns that level of detail.
  * @param {string} [props.rentPreview] - what landing on this tile costs right now (GameBoard.jsx's rentPreview.js#rentLabel — "$130", "10× xúc xắc", "Cầm cố", ...), only meaningful once owned. Deliberately the RENT, not `tile.price` — a real user correction, 2026-08-25: "số tiền này là số tiền khi giẫm vào phải trả mà" (this number is what you pay when you land on it) — the purchase price stops being the relevant figure the instant a tile is owned.
  * @param {boolean} [props.isTargetable] - PLACE_TRAP target-picking (ASYMMETRIC, GameBoard.jsx's own trapDraft) — true for EVERY tile while a trap is being aimed, not just the ones with a Property row (trapEngine.js's validateTrapPlacement has no ownership restriction). Drives a distinct crosshair affordance so "pick any tile" reads differently from the normal "select this property" click.
- * @param {{archetype: string, tier: number, owned: number}} [props.synergy] - [ASYMMETRIC] this tile's live Hệ Tộc contribution, resolved once per render by GameBoard.jsx (synergy.js#synergyByTileId) — absent for an unowned/mortgaged tile, for one whose owner is still below tier 1, and always in CLASSIC. Drives the archetype-coloured glow that answers "which of these tiles are actually doing something right now", which is otherwise invisible: synergies are derived from a whole portfolio, so nothing about a single tile reveals its own tier.
+ * @param {{archetype: string, tier: number, owned: number}} [props.synergy] - [ASYMMETRIC] this tile's live Thế Lực contribution, resolved once per render by GameBoard.jsx (synergy.js#synergyByTileId) — absent for an unowned/mortgaged tile, for one whose owner is still below tier 1, and always in CLASSIC. Drives the archetype-coloured glow that answers "which of these tiles are actually doing something right now", which is otherwise invisible: synergies are derived from a whole portfolio, so nothing about a single tile reveals its own tier.
  * @param {{tileIndex: number, type: string, expiresAtRound: number}} [props.trap] - [ASYMMETRIC] a trap standing on this tile — **only ever the viewer's OWN**. The server redacts every other player's trap down to an anonymous, position-less stub before it leaves the room (engine/stateRedaction.js), so this component cannot render, and was never told, where an opponent's trap is.
  * @param {object} [props.style] - grid placement, set by GameBoard
  */
@@ -114,7 +114,7 @@ export default function BoardTile({ tile, isCorner, edge, isSelected, onClick, i
         <div className={styles.band} style={{ background: bandColor }} />
       )}
 
-      {/* Live Hệ Tộc marker. Sits opposite .ownedPrice (which uses the tile's
+      {/* Live Thế Lực marker. Sits opposite .ownedPrice (which uses the tile's
           own "tail" edge) so an owned tile powering a synergy shows both
           without them ever overlapping. Filled pips, one per tier reached,
           out of the archetype's own maximum — a shape, not a number, because
@@ -122,7 +122,7 @@ export default function BoardTile({ tile, isCorner, edge, isSelected, onClick, i
       {synergyMeta && (
         <div
           className={styles.synergyBadge}
-          title={`${synergyMeta.label} — Hệ Tộc cấp ${synergy.tier}/${maxTier(synergy.archetype)} (${synergy.owned} ô). ${synergyMeta.effect}`}
+          title={`${synergyMeta.label} — Thế lực cấp ${synergy.tier}/${maxTier(synergy.archetype)} (${synergy.owned} ô). ${synergyMeta.effect}`}
         >
           {'◆'.repeat(synergy.tier)}
         </div>

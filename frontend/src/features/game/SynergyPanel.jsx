@@ -5,7 +5,7 @@ import { GROUP_COLORS, playerColor } from '../board/tileVisuals'
 import { ARCHETYPE_MEMBERS, playerSynergies } from '../board/synergy'
 import styles from './SynergyPanel.module.css'
 
-// Hệ Tộc readout (2026-09-04, user request: "hãy thiết kế 1 mục để người chơi
+// Thế Lực readout (2026-09-04, user request: "hãy thiết kế 1 mục để người chơi
 // biết màu gì có buff gì và tiến độ hoàn thành màu của người chơi như kiểu
 // tft hoặc cờ liên quân").
 //
@@ -66,7 +66,7 @@ export default function SynergyPanel() {
 
   return (
     <section className={styles.panel}>
-      <h2 className={styles.heading}>Hệ Tộc</h2>
+      <h2 className={styles.heading}>Thế Lực</h2>
 
       {realPlayers.length > 1 && (
         <div className={styles.playerTabs}>

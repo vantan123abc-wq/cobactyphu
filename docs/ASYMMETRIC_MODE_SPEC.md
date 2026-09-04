@@ -27,7 +27,7 @@ Do Thẻ Di Chuyển thường ngắn hơn Xúc xắc (3 bước vs 7 bước), 
 
 ---
 
-## 2. Các Hệ Tộc Giai Đoạn 1 (Đã cân bằng theo Traffic & Cost)
+## 2. Các Thế Lực Giai Đoạn 1 (Đã cân bằng theo Traffic & Cost)
 
 ### 2.1. 🔴🟢 BÌNH DÂN — "CONTROL" (Giá cực rẻ: ~$440)
 - **Traffic:** Nằm ở nửa đầu bàn cờ (Ô 1-8). Bị đi ngang qua nhiều gấp 2.4 lần so với Tử Địa. Cực kỳ hiệu quả trên mỗi đồng vốn.
@@ -53,7 +53,7 @@ Do Thẻ Di Chuyển thường ngắn hơn Xúc xắc (3 bước vs 7 bước), 
 
 ---
 
-## 3. Các Hệ Tộc Giai Đoạn 2 (Đắt đỏ & Phức tạp)
+## 3. Các Thế Lực Giai Đoạn 2 (Đắt đỏ & Phức tạp)
 
 ### 3.1. 🟡🟩 THƯỢNG LƯU — "DENIAL" (Giá đắt: ~$1.480)
 - **Mốc kích hoạt:** 2 Đất / 4 Đất / 6 Đất.
