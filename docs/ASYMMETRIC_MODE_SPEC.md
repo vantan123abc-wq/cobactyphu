@@ -42,8 +42,20 @@ Do Thẻ Di Chuyển thường ngắn hơn Xúc xắc (3 bước vs 7 bước), 
 
 ### 2.3. ⚡💧 HẠ TẦNG — "POWER & SUSTAIN" (Giá rẻ: $400)
 - **Mốc kích hoạt:** 1 Công ty / 2 Công ty.
-- **🚶 Đi ngang qua:** Phí quá cảnh bạn thu được +10% vào quỹ dự trữ.
-- **🎯 Dừng lại:** +25% Rent (Có Overload) + Trích Rent vào Quỹ Dự trữ.
+- **🚶 Đi ngang qua:** *(không có)* — xem ghi chú bên dưới.
+- **🎯 Dừng lại:** **+25% Rent** ở mốc 1 Công ty, **+50% Rent** ở mốc 2 Công ty.
+
+> **Sửa đổi 2026-09-04 — bản này thay thế hẳn bản cũ, không phải bổ sung.**
+>
+> Bản trước ghi: *"🚶 Phí quá cảnh bạn thu được +10% vào quỹ dự trữ"* và *"🎯 +25% Rent (Có Overload) + Trích Rent vào Quỹ Dự trữ"*. Cả hai vế đều dựa vào **"Quỹ dự trữ"** — và cụm từ đó, cùng với **"Overload"**, chỉ xuất hiện đúng ở hai dòng này, **không ở bất kỳ tài liệu, schema, hay dòng code nào khác**. Không có gì nói quỹ dùng để làm gì, ai sở hữu, có tiêu được không, hay có tính vào net worth không. Thêm một bể tiền mới cũng là câu hỏi về **bất biến kinh tế đóng** (`ECONOMY_SPECIFICATION.md` §4), không phải một thay đổi cục bộ.
+>
+> Hệ quả thực tế của khoảng trống này: **Hạ Tầng là hệ duy nhất trong §2/§3 không có hiệu ứng nào được cài đặt** cho tới 2026-09-04 — `archetypeOf` trả về `'INFRA'` cho mọi ô công ty và `synergyTier` vẫn đếm chúng, nhưng cả `passThroughEffect`, `landingEffect` lẫn `calculateRentMiddleware` đều không có nhánh nào. Sở hữu cả hai công ty ở chế độ Đột Phá **không đem lại gì** ngoài tiền thuê cổ điển; hai ô trên bàn cờ nằm chết trong ruleset này.
+>
+> Đã đưa ra cho người quyết định, kèm các phương án thay thế (quỹ làm đệm chống phá sản — đúng với chữ "SUSTAIN" trong tên hệ; hoặc cộng vào net worth ở Final Phase). **Quyết định: bỏ hẳn quỹ dự trữ, dồn toàn bộ ngân sách của hệ vào rider tiền thuê.**
+>
+> Rider **tăng theo mốc** (25% → 50%) chứ không phẳng như CONTROL, để **công ty thứ hai có lý do synergy thật sự**. Nếu để phẳng, phần thưởng duy nhất khi lên mốc 2 sẽ là bước nhảy hệ số gốc mà `calculateRent` vốn đã tự làm (`diceRoll × (ownsBoth ? 10 : 4)`, `GAME_DESIGN_SPEC.md` §11), và tầng archetype sẽ không đóng góp gì ở mốc cao nhất mà nó chưa đóng góp ở mốc 1. Với cú đổ 7: **28 → 35** (1 công ty), **70 → 105** (2 công ty).
+>
+> **Hạ Tầng vì vậy là hệ duy nhất chỉ có một mặt** (chỉ Dừng lại, không có Đi ngang qua). Đây là chủ ý, không phải thiếu sót.
 
 ### 2.4. 🟣🟠 GIAO THƯƠNG — "ECONOMY" (Giá trung bình: ~$1.000)
 - **Traffic:** Rất thường xuyên bị dẫm trúng do nằm ở khu vực đối thủ chọn "lesser evil" để hạ cánh.

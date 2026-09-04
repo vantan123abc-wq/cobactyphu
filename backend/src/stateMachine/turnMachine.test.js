@@ -4024,10 +4024,16 @@ test('PLAY_MOVEMENT_CARD: landing on a utility does not throw — resolveLanding
 
   assert.equal(result.gameState.players.find((p) => p.id === 'mc1').currentPosition, 6);
   // UTILITY_DICE_FALLBACK (7) x 4 for a single-utility owner — the same
-  // convention moveByStepsAndResolve already uses for card-driven landings.
+  // convention moveByStepsAndResolve already uses for card-driven landings —
+  // then INFRA's own +25% landing rider (§2.3, wired 2026-09-04), which is why
+  // this is 35 and not the bare 28 it asserted when the archetype was inert:
+  // floor(28 x 1.25). The exact figure is incidental to what this test is for
+  // (proving resolveLanding receives a real dice value rather than `now`), but
+  // it is asserted rather than loosened, so a change to either half stays
+  // visible instead of quietly cancelling out.
   const rentTx = result.transactions.find((t) => t.transactionType === 'rent');
   assert.ok(rentTx, 'landing on an owned utility must produce a rent transaction');
-  assert.equal(rentTx.amount, 28);
+  assert.equal(rentTx.amount, 35);
 });
 
 test('PLAY_MOVEMENT_CARD: crossing GO pays the salary under the listed transactionType', () => {
