@@ -12,6 +12,22 @@ import styles from './CenterBoardArea.module.css'
 // happened to.
 const PASS_GO_NOTICE_MS = 3200
 
+// How long the "vào tù" callout stays up. Longer than Pass GO's, because it
+// answers a question rather than reporting a number — a real user reported
+// going to jail as a rules BUG ("vẫn đang có lỗi đi tù mặc dù không xắc đôi 3
+// lần liên tiếp") purely because nothing on screen ever said why.
+const JAIL_NOTICE_MS = 4200
+
+// gameState.lastJailEvent.reason -> what the table is told. Measured over 400
+// fuzzed CLASSIC matches, the middle line is by far the most common cause
+// (1935 of 2543 jailings) and the first is the rarest (223) — the opposite of
+// what players assume, which is exactly why naming it matters.
+const JAIL_REASON_TEXT = {
+  THIRD_DOUBLE: 'xắc đôi 3 lần liên tiếp',
+  GO_TO_JAIL_TILE: 'dẫm phải ô Vào Tù',
+  EVENT_CARD: 'trúng thẻ phạt',
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Trống Đồng Đông Sơn — the board's center medallion (2026-08-23, user
 // request: a traditional-Vietnamese image for the middle of the board).
@@ -209,6 +225,38 @@ export default function CenterBoardArea() {
   const [passGoNotices, setPassGoNotices] = useState([])
   const seenPassGoVersionRef = useRef(null)
 
+  // "Vào tù" callout (2026-09-04). Keyed off gameState.lastJailEventSeq, NOT
+  // stateVersion: the backend increments that counter only where somebody is
+  // genuinely jailed, so it is the exact "this just happened" signal — the
+  // same reason DiceRoll.jsx keys off lastRollSeq (finding #37, where a
+  // stateVersion-keyed notice replayed on every later unrelated action).
+  const [jailNotice, setJailNotice] = useState(null)
+  const jailSeq = gameState?.lastJailEventSeq ?? 0
+  const seenJailSeqRef = useRef(null)
+
+  useEffect(() => {
+    if (seenJailSeqRef.current === jailSeq) return
+    // First broadcast this client sees (a fresh join, or a reconnect resync
+    // mid-match) arrives with whatever seq the match is already at. Adopt it
+    // silently instead of announcing a jailing that happened before we were
+    // watching. Note this must ADOPT seq 0 rather than skip it: a client that
+    // joins before anyone has been jailed starts at 0, and returning early on
+    // that would leave the ref null and swallow the match's very first
+    // jailing as though it were a pre-existing one.
+    const isFirstSighting = seenJailSeqRef.current === null
+    seenJailSeqRef.current = jailSeq
+    if (isFirstSighting) return
+    const event = gameState?.lastJailEvent
+    if (!event) return
+    setJailNotice({ ...event, seq: jailSeq })
+  }, [jailSeq, gameState])
+
+  useEffect(() => {
+    if (!jailNotice) return
+    const timer = setTimeout(() => setJailNotice(null), JAIL_NOTICE_MS)
+    return () => clearTimeout(timer)
+  }, [jailNotice])
+
   useEffect(() => {
     if (stateVersion == null || seenPassGoVersionRef.current === stateVersion) return
     seenPassGoVersionRef.current = stateVersion
@@ -263,8 +311,24 @@ export default function CenterBoardArea() {
             })}
           </div>
         )}
+        {jailNotice && (
+          <p key={jailNotice.seq} className={styles.jailNotice}>
+            <span className={styles.jailIcon}>🚔</span>
+            <span className={styles.jailWho}>
+              {jailNotice.playerId === me?.id
+                ? 'Bạn vào tù!'
+                : `${nameFor(gameState?.players.find((p) => p.id === jailNotice.playerId))} vào tù!`}
+            </span>
+            <span className={styles.jailReason}>{JAIL_REASON_TEXT[jailNotice.reason] ?? 'bị phạt'}</span>
+          </p>
+        )}
+        {/* The jail callout takes this slot while it is up. Suppressing the
+            turn status for those few seconds is better than hand-tuning two
+            offsets past each other: whose turn it is stays readable in the
+            players panel throughout, and the two can then never collide at
+            any board size. */}
         {gameState ? (
-          <p className={styles.turnStatus}>{isMyTurn ? 'Đến lượt của bạn' : `Đến lượt của ${nameFor(activePlayer)}`}</p>
+          !jailNotice && <p className={styles.turnStatus}>{isMyTurn ? 'Đến lượt của bạn' : `Đến lượt của ${nameFor(activePlayer)}`}</p>
         ) : (
           <span className={styles.wordmark}>Cờ Tỷ Phú</span>
         )}

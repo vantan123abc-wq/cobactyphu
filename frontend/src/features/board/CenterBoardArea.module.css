@@ -214,3 +214,81 @@
   stroke: #6f5324;
   stroke-width: 0.8;
 }
+
+/* "Vào tù" callout (2026-09-04). Same billboarded `.calloutAnchor` slot the
+   Pass GO notice uses, and the same pure-2D translate convention (see
+   .calloutAnchor's own comment for why a 3D nudge would sink behind the
+   felt). Nudged DOWN where Pass GO goes up, so the two can never collide —
+   a player can cross GO and land on Vào Tù in the very same move.
+
+   This exists because a real user reported jail as a rules BUG: the engine
+   was right, but nothing on screen ever named the cause, and the token
+   teleports to the jail corner with no walk to watch (sendToJail rewrites
+   currentPosition directly). */
+.jailNotice {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(var(--side) * 0.004);
+  transform: translate(-50%, calc(-50% + var(--side) * 0.11));
+  padding: calc(var(--side) * 0.012) calc(var(--side) * 0.028);
+  border-radius: calc(var(--side) * 0.012);
+  background: rgba(120, 16, 16, 0.94);
+  border: 2px solid #ffd0d0;
+  box-shadow: 0 calc(var(--side) * 0.006) calc(var(--side) * 0.02) rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  animation: jailNoticePop 4.2s ease-out both;
+}
+
+.jailIcon {
+  font-size: calc(var(--side) * 0.05);
+  line-height: 1;
+}
+
+.jailWho {
+  font-family: var(--heading);
+  font-size: calc(var(--side) * 0.036);
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.02em;
+}
+
+.jailReason {
+  font-size: calc(var(--side) * 0.024);
+  font-weight: 700;
+  color: #ffd0d0;
+}
+
+/* Duration must stay in step with JAIL_NOTICE_MS in CenterBoardArea.jsx —
+   the component unmounts the element on that timer, so a longer animation
+   would be cut off mid-fade and a shorter one would leave it sitting
+   invisible but mounted. */
+/* Starts at FULL opacity and pops only by scale. Deliberate: if the document
+   timeline ever stalls at 0 — a backgrounded tab, an occluded window — an
+   animation that began at opacity 0 leaves the notice mounted but completely
+   invisible for its whole life, which is the exact failure this whole feature
+   exists to prevent. Measured live: currentTime stuck at 0 for 2.5s while
+   playState still read "running". Scaling in reads as a pop just as well and
+   degrades to "simply visible" instead of "silently absent". */
+@keyframes jailNoticePop {
+  0%   { opacity: 1; transform: translate(-50%, calc(-50% + var(--side) * 0.11)) scale(0.7); }
+  8%   { transform: translate(-50%, calc(-50% + var(--side) * 0.11)) scale(1.06); }
+  14%  { transform: translate(-50%, calc(-50% + var(--side) * 0.11)) scale(1); }
+  88%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jailNotice {
+    animation: jailNoticeStill 4.2s linear both;
+  }
+  @keyframes jailNoticeStill {
+    0%, 88% { opacity: 1; }
+    100%    { opacity: 0; }
+  }
+}
