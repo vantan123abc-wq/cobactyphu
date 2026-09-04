@@ -69,6 +69,38 @@ test('passThroughEffect: CONTROL costs a step once the owner is at tier 1', () =
   assert.deepStrictEqual(passThroughEffect(state, BOARD, BOARD[0], 'p1'), { type: 'STEP_LOSS', amount: 1 });
 });
 
+// INFRA / Hạ Tầng (2026-09-04). BOARD above carries only one utility, and
+// INFRA's top tier needs both, so this builds its own two-utility board
+// rather than reshaping a fixture five other tests depend on.
+const INFRA_BOARD = [
+  createTile({ id: 'u1', boardId: 'small', position: 11, tileType: 'utility', name: 'U1', price: 150 }),
+  createTile({ id: 'u2', boardId: 'small', position: 27, tileType: 'utility', name: 'U2', price: 150 }),
+];
+const ownUtil = (id, ownerId, extra = {}) =>
+  createProperty({ id: `p-${id}`, gameId: 'g', boardTileId: id, ownerId, ...extra });
+const infraState = (properties) => ({ ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties });
+
+test('passThroughEffect: INFRA charges a crossing fee only once BOTH utilities are held', () => {
+  const one = infraState([ownUtil('u1', 'p2')]);
+  assert.strictEqual(
+    passThroughEffect(one, INFRA_BOARD, INFRA_BOARD[0], 'p1'),
+    null,
+    'tier 1 is rent support only — nothing happens walking past'
+  );
+
+  const both = infraState([ownUtil('u1', 'p2'), ownUtil('u2', 'p2')]);
+  assert.deepStrictEqual(passThroughEffect(both, INFRA_BOARD, INFRA_BOARD[0], 'p1'), {
+    type: 'TOLL',
+    amount: 25,
+    ownerId: 'p2',
+  });
+});
+
+test('passThroughEffect: INFRA never charges the owner for crossing their own utility', () => {
+  const both = infraState([ownUtil('u1', 'p2'), ownUtil('u2', 'p2')]);
+  assert.strictEqual(passThroughEffect(both, INFRA_BOARD, INFRA_BOARD[0], 'p2'), null);
+});
+
 test('passThroughEffect: EXECUTION charges per development level, nothing while undeveloped', () => {
   const flat = stateWith([own(33, 'p2'), own(35, 'p2')]);
   const tile33 = BOARD.find((t) => t.position === 33);

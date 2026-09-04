@@ -72,39 +72,19 @@ export function calculateFinalRent(
     modifier += 0.5;
   }
 
-  // INFRA (§2.3) "+25% Rent", wired 2026-09-04. Until now this archetype was
-  // the one entry in TIERS with no effect anywhere — `archetypeOf` returned
-  // 'INFRA' for every utility and `synergyTier` counted them, but neither
-  // passThroughEffect nor landingEffect nor this function had a branch, so
-  // holding both utilities in ASYMMETRIC did literally nothing beyond classic
-  // utility rent. Two of the board's tiles were inert in this ruleset.
+  // INFRA (§2.3, wired 2026-09-04) — the SUPPORT archetype. Unlike every
+  // other modifier here it does not care which tile was landed on: holding
+  // utilities "powers" the owner's whole portfolio, so this applies to every
+  // rent they collect, including on tiles of a completely different
+  // archetype. See synergyEngine.js's own INFRA arm for why the spec's
+  // reserve-fund version was not built and this was.
   //
-  // Scales per tier (+25% at one utility, +50% at both) rather than flat like
-  // CONTROL. That is a decision the user made on 2026-09-04, replacing §2.3's
-  // other two clauses outright — see below — and it exists to give the SECOND
-  // utility a real synergy reason. Without it, INFRA's only tier-2 payoff
-  // would be the base-rate jump calculateRent already does on its own
-  // (`diceRoll × (ownsBoth ? 10 : 4)`, GAME_DESIGN_SPEC §11), and the
-  // archetype layer would add nothing at max tier that it did not already add
-  // at tier 1. Net effect at a 7 roll: 28 -> 35 with one utility, 70 -> 105
-  // with both.
-  //
-  // WHAT WAS DROPPED, and why this is a replacement rather than a partial
-  // implementation: §2.3's two other clauses ("Phí quá cảnh +10% vào quỹ dự
-  // trữ", "Trích Rent vào Quỹ Dự trữ") both depend on a "Quỹ dự trữ" that is
-  // defined NOWHERE — verified 2026-09-04, the phrase and "Overload" appear in
-  // §2.3's two bullet lines and in no other document, schema, or line of code,
-  // with nothing saying what the fund is for, who owns it, whether it is
-  // spendable, or whether it counts toward net worth. A new money pool is also
-  // a closed-economy question (ECONOMY_SPECIFICATION §4), not a local one. Put
-  // to the user with the alternatives (a bankruptcy buffer matching the
-  // archetype's own "SUSTAIN" name, or a Final-Phase net-worth bonus); they
-  // chose to drop the fund entirely and put the archetype's whole budget into
-  // this rider. So INFRA is deliberately a landing-only archetype: it has no
-  // pass-through half at all, unlike every other archetype in §2/§3.
-  const infraTier = archetypeOf(targetTile) === 'INFRA' ? synergyTier(gameState, boardTiles, ownerId, 'INFRA') : 0;
+  // Small on purpose. +25% on EVERYTHING is worth more than CONTROL's +50%
+  // on one archetype's tiles, and INFRA is the cheapest set on the board
+  // ($400 for both utilities, reachable in two purchases).
+  const infraTier = synergyTier(gameState, boardTiles, ownerId, 'INFRA');
   if (infraTier > 0) {
-    modifier += infraTier >= 2 ? 0.5 : 0.25;
+    modifier += infraTier >= 2 ? INFRA_RENT_BONUS_MAX : INFRA_RENT_BONUS_BASE;
   }
 
   const finalRent = baseRent * clamp(1 + modifier, MIN_RENT_MULTIPLIER, MAX_RENT_MULTIPLIER);
@@ -115,5 +95,13 @@ const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
 // Bounds exist so a future stack of archetypes can never produce a rent no
 // player could have anticipated. Nothing today comes close to either end.
+// INFRA's portfolio-wide rent support, by tier. Summed into the modifier above
+// with everything else, so a CONTROL tile owned by a full-INFRA player is
+// 1 + 0.5 + 0.25 = x1.75 — comfortably inside MAX_RENT_MULTIPLIER, which is
+// exactly the bounded, readable stacking that modifier's own comment
+// anticipated for "a future archetype".
+export const INFRA_RENT_BONUS_BASE = 0.1;
+export const INFRA_RENT_BONUS_MAX = 0.25;
+
 export const MIN_RENT_MULTIPLIER = 0.25;
 export const MAX_RENT_MULTIPLIER = 3;

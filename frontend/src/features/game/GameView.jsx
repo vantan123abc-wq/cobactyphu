@@ -5,6 +5,7 @@ import GameBoard from '../board/GameBoard'
 import BoardCamera from '../board/BoardCamera'
 import PlayersPanel from './PlayersPanel'
 import Ledger from './Ledger'
+import SynergyPanel from './SynergyPanel'
 import MyPortfolio from './MyPortfolio'
 import GameControls from './GameControls'
 import MovementHandControls from './MovementHandControls'
@@ -86,6 +87,20 @@ export default function GameView() {
               together here rather than in PlayersPanel's per-player cards. */}
           <div className={styles.statusRail}>
             {gameState && <span className={styles.turnPill}>🎲 Vòng {gameState.roundNumber}</span>}
+            {/* Which ruleset this match is ACTUALLY running (2026-09-04). Added
+                after a real report of "chế độ mới chẳng khác gì chế độ cũ":
+                the room ruleset was not being persisted, so a match created as
+                Đột Phá could silently start as Cổ Điển with nothing anywhere
+                on screen contradicting the lobby label. The bug is fixed, but
+                the mode a match is running should never again be something a
+                player has to infer from whether a Draft modal happened to
+                appear. Reads gameState.ruleset — the value the ENGINE is
+                actually using, not the room record. */}
+            {gameState && (
+              <span className={gameState.ruleset === 'ASYMMETRIC' ? styles.modePillAsym : styles.modePill}>
+                {gameState.ruleset === 'ASYMMETRIC' ? '⚔️ Đột Phá' : '♟️ Cổ Điển'}
+              </span>
+            )}
             {/* Table-wide market state (design brief §16) — building supply,
                 jackpot, live auction high. Every figure already existed but
                 was scattered across three separate panels, none of them
@@ -112,6 +127,13 @@ export default function GameView() {
         </div>
 
         <aside className={styles.right}>
+          {/* ASYMMETRIC only, self-gating — the mode's synergies are derived
+              from a whole portfolio and stored nowhere, so without this panel
+              the only trace of them in the UI was a ring on tiles already
+              feeding one: what you finished, never what you are building
+              toward or what it would pay. First in the rail because in that
+              mode it is the readout every purchase decision is made against. */}
+          <SynergyPanel />
           <MyPortfolio />
           <CardInventory />
           <Ledger />

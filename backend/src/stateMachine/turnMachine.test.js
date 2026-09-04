@@ -3810,6 +3810,89 @@ test('DRAFTING_ACTIVE rejects any action other than DRAFT_PICK/DRAFT_PASS', () =
   assert.throws(() => transitionTurn(draftGameState(), board, { type: 'ROLL_DICE' }), InvalidTurnActionError);
 });
 
+// ── Why a player is in jail (2026-09-04) ───────────────────────────────────
+// A real user report — "vẫn đang có lỗi đi tù mặc dù không xắc đôi 3 lần liên
+// tiếp". The rule was never wrong; fuzzing 400 CLASSIC matches showed only
+// 8.8% of jailings came from three doubles at all (1935 of 2543 came from the
+// go_to_jail tile, 385 from an event card), and NONE of the three routes told
+// the client anything. sendToJail() rewrites currentPosition straight to the
+// jail tile, so the go_to_jail tile is never a position any client observes,
+// and the doubles streak is reset in the same transition. lastJailEvent is
+// what the table is finally shown. No game logic reads it back.
+
+test('a 3rd consecutive double records WHY the player was jailed', () => {
+  let state = { ...baseGameState(), phase: 'ROLLING', currentDoublesStreak: 2 };
+  const thirdDouble = { ...roll(4, 4, 2), sentToJail: true };
+  const { gameState } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: thirdDouble });
+
+  assert.deepEqual(gameState.lastJailEvent, { playerId: 'gp-alice', reason: 'THIRD_DOUBLE', viaPosition: null });
+  assert.equal(gameState.lastJailEventSeq, 1);
+  assert.equal(gameState.players.find((p) => p.id === 'gp-alice').inJail, true);
+});
+
+test('landing on Go To Jail reports the TILE as the cause, and which tile it was', () => {
+  const goToJail = board.find((t) => t.tileType === 'go_to_jail');
+  let state = { ...baseGameState(), phase: 'ROLLING' };
+  // From GO, a non-double total that lands exactly on the go_to_jail tile.
+  const total = goToJail.position;
+  const { gameState } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(total - 1, 1) });
+
+  const alice = gameState.players.find((p) => p.id === 'gp-alice');
+  assert.equal(alice.inJail, true);
+  assert.equal(alice.currentPosition, board.find((t) => t.tileType === 'jail').position, 'relocated to the jail tile');
+  assert.deepEqual(gameState.lastJailEvent, {
+    playerId: 'gp-alice',
+    reason: 'GO_TO_JAIL_TILE',
+    // The whole point: this position is otherwise UNRECOVERABLE client-side,
+    // because currentPosition above has already been overwritten with the
+    // jail tile's.
+    viaPosition: goToJail.position,
+  });
+  assert.equal(gameState.lastJailEventSeq, 1);
+});
+
+test('an ordinary roll that jails nobody leaves lastJailEvent and its seq alone', () => {
+  let state = { ...baseGameState(), phase: 'ROLLING', lastJailEventSeq: 4 };
+  const { gameState } = transitionTurn(state, board, { type: 'ROLL_DICE', payload: roll(1, 2) });
+  assert.equal(gameState.lastJailEvent, null);
+  assert.equal(gameState.lastJailEventSeq, 4, 'the counter only moves when someone is actually jailed');
+});
+
+// ── Going to jail cancels the doubles bonus, whatever jailed you ───────────
+// Found by the same fuzz run (seed 158): a player sitting at the jail tile,
+// inJail true, in phase ROLLING, on a live 2-double streak — free to roll and
+// move straight back out. Both ROLL-based routes into jail already forced
+// lastRollWasDouble false themselves, so this was only ever reachable through
+// an event card, which jails from inside applyIntents and never touched that
+// flag. advanceTurn now checks inJail directly, covering every route at once.
+test('a player jailed mid-turn does NOT get their doubles bonus roll', () => {
+  const jailPosition = board.find((t) => t.tileType === 'jail').position;
+  const state = {
+    ...baseGameState(),
+    phase: 'POST_ACTIONS',
+    // Rolled a double this turn, then an event card put them in jail.
+    lastRollWasDouble: true,
+    currentDoublesStreak: 1,
+  };
+  state.players[1] = { ...state.players[1], inJail: true, currentPosition: jailPosition, jailTurns: 0 };
+
+  const { gameState } = transitionTurn(state, board, { type: 'END_TURN' });
+
+  assert.equal(gameState.currentTurnIndex, 1, 'the turn passes to Bob instead of looping back to a jailed Alice');
+  // The phase is legitimately ROLLING here — but it is BOB's roll now, not a
+  // bonus roll handed to the jailed player, which is the whole point.
+  assert.equal(getCurrentPlayer(gameState).id, 'gp-bob');
+});
+
+test('the doubles bonus still works normally for a player who is NOT in jail', () => {
+  const state = { ...baseGameState(), phase: 'POST_ACTIONS', lastRollWasDouble: true, currentDoublesStreak: 1 };
+  const { gameState } = transitionTurn(state, board, { type: 'END_TURN' });
+
+  assert.equal(gameState.currentTurnIndex, 0, 'same player');
+  assert.equal(gameState.phase, 'ROLLING', 'rolls again');
+  assert.equal(gameState.currentDoublesStreak, 1, 'and keeps the streak that could still reach a 3rd double');
+});
+
 // ── Trap system (trapEngine.js, ROADBLOCK/TOLL_BOOTH) ───────────────────────
 // Shares PLAYING_CARD with PLAY_MOVEMENT_CARD by design (turnMachine.js's own
 // VALID_ACTIONS_BY_PHASE comment) — placing a trap spends a movement card
@@ -4025,15 +4108,15 @@ test('PLAY_MOVEMENT_CARD: landing on a utility does not throw — resolveLanding
   assert.equal(result.gameState.players.find((p) => p.id === 'mc1').currentPosition, 6);
   // UTILITY_DICE_FALLBACK (7) x 4 for a single-utility owner — the same
   // convention moveByStepsAndResolve already uses for card-driven landings —
-  // then INFRA's own +25% landing rider (§2.3, wired 2026-09-04), which is why
-  // this is 35 and not the bare 28 it asserted when the archetype was inert:
-  // floor(28 x 1.25). The exact figure is incidental to what this test is for
-  // (proving resolveLanding receives a real dice value rather than `now`), but
-  // it is asserted rather than loosened, so a change to either half stays
-  // visible instead of quietly cancelling out.
+  // then INFRA's +10% tier-1 rider (§2.3, wired 2026-09-04): floor(28 x 1.1).
+  // It was a bare 28 while the archetype was inert. The exact figure is
+  // incidental to what this test is for (proving resolveLanding receives a
+  // real dice value rather than `now`), but it is asserted rather than
+  // loosened, so a change to either half stays visible instead of quietly
+  // cancelling out.
   const rentTx = result.transactions.find((t) => t.transactionType === 'rent');
   assert.ok(rentTx, 'landing on an owned utility must produce a rent transaction');
-  assert.equal(rentTx.amount, 35);
+  assert.equal(rentTx.amount, 30);
 });
 
 test('PLAY_MOVEMENT_CARD: crossing GO pays the salary under the listed transactionType', () => {

@@ -1,0 +1,286 @@
+/* Thế Lực panel — the right rail's ASYMMETRIC-only trait readout. Follows the
+   same visual language as its neighbours (MyPortfolio / CardInventory /
+   Ledger): --et-* tokens from GameView's .shell, a gold uppercase heading,
+   card-background rows on the panel background. Nothing here is scoped to the board,
+   so no --side units — this is ordinary sidebar chrome. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.heading {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--et-gold);
+}
+
+/* Whose board you are looking at. Present only with 2+ real players. */
+.playerTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 2px;
+}
+
+.playerTab {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--et-border);
+  background: transparent;
+  color: var(--et-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playerTabActive {
+  border-color: var(--tab-color);
+  background: color-mix(in srgb, var(--tab-color) 22%, transparent);
+  color: var(--et-text);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* flex:1 + min-height:0 is what actually lets this scroll instead of
+     growing: without both, the ul reports its full content height to the
+     flex parent and overflow-y never has anything to clip. */
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* An inactive trait is deliberately dimmed rather than hidden — "what could I
+   still build toward" is half the point of the panel, so the ladder has to
+   stay readable before it is reached. */
+.row {
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: var(--et-card-bg);
+  border: 1px solid var(--et-border);
+  border-left: 3px solid var(--arch-color);
+  opacity: 0.62;
+}
+
+.rowActive {
+  opacity: 1;
+  border-color: var(--arch-color);
+  box-shadow: 0 0 0 1px var(--arch-color) inset;
+}
+
+.rowHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pips {
+  display: inline-flex;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+
+.pip {
+  width: 6px;
+  height: 6px;
+  transform: rotate(45deg);
+  background: transparent;
+  border: 1px solid var(--arch-color);
+}
+
+.pipOn {
+  background: var(--arch-color);
+}
+
+.name {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--et-text);
+  white-space: nowrap;
+}
+
+.members {
+  display: inline-flex;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+
+.memberDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.memberNote {
+  font-size: 9px;
+  color: var(--et-text-muted);
+  white-space: nowrap;
+}
+
+.count {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--arch-color);
+  font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
+}
+
+.countTarget {
+  color: var(--et-text-muted);
+  font-weight: 700;
+}
+
+/* Progress toward the NEXT threshold, with every threshold on the ladder
+   marked so the whole progression is legible, not just the next rung. */
+.bar {
+  position: relative;
+  height: 5px;
+  margin: 6px 0 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--arch-color);
+  transition: width 0.35s ease-out;
+}
+
+.tick {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.4);
+  transform: translateX(-0.5px);
+}
+
+.tickOn {
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.effect {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.effectLine {
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--et-text);
+}
+
+.effectGate {
+  color: var(--et-text-muted);
+  font-style: normal;
+}
+
+.effectNone {
+  font-size: 10px;
+  color: var(--et-text-muted);
+  font-style: italic;
+}
+
+.status {
+  margin: 5px 0 0;
+  font-size: 9.5px;
+  line-height: 1.4;
+  color: var(--et-text-muted);
+}
+
+.mortgagedWarn {
+  color: #ffb4b5;
+}
+
+.onBoard {
+  opacity: 0.75;
+}
+
+/* GameView's own <900px breakpoint stacks the three columns into one flow,
+   where the right rail becomes a normal-width block rather than a narrow
+   sidebar — the rows have room to breathe there. */
+@media (max-width: 900px) {
+  .list {
+    overflow-y: visible;
+  }
+}
+
+/* Collapsible header, byte-for-byte the same affordance MyPortfolio /
+   CardInventory / Ledger use in this rail — a player should not have to learn
+   a second interaction for the fourth panel in a column. */
+.headerBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--et-card-bg);
+  border: 1px solid var(--et-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  flex: 0 0 auto;
+}
+
+.headerBtn:hover {
+  background: var(--et-panel-bg);
+  border-color: var(--et-gold);
+}
+
+/* How many Thế Lực are actually ACTIVE — the one number worth keeping visible
+   when the panel is collapsed, same role MyPortfolio's holding count plays. */
+.count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--et-gold-dim);
+  color: var(--et-gold);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.toggleIcon {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--et-text-muted);
+}
+
+/* THE layout fix. `.right` is a fixed-height flex column with overflow:hidden,
+   so a panel that sizes itself to its content takes whatever it wants and
+   shoves its siblings out of the rail — which is exactly what six
+   always-expanded archetype rows did (a real screenshot showed this panel
+   overlapping the ones below it, with nested scrollbars). Claiming a share
+   with `flex: 1` and scrolling INSIDE it is how Ledger.module.css already
+   solves the identical problem for the same rail; two expanded panels then
+   simply split the space instead of fighting for it. */
+.panel.expanded {
+  flex: 1;
+  /* A floor, not a fixed size. With flex:1 alone this panel is whatever is
+     LEFT OVER after the content-sized panels below it, and a player holding a
+     long property list squeezed it down to half a row — the readout they
+     actually asked for ending up the smallest thing in the rail. ~2 rows is
+     enough to be worth reading; the rest scrolls, and the siblings shrink
+     into their own internal scroll rather than overflowing, which is why
+     they all carry min-height: 0. */
+  min-height: 200px;
+}

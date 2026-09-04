@@ -1,4 +1,4 @@
-// Synergy (Hệ Tộc) evaluation for the ASYMMETRIC ruleset —
+// Synergy (Thế Lực) evaluation for the ASYMMETRIC ruleset —
 // docs/ASYMMETRIC_MODE_SPEC.md §2.
 //
 // Set levels are counted across a whole ARCHETYPE, not per colour group.
@@ -179,6 +179,34 @@ export function passThroughEffect(gameState, boardTiles, tile, crosserId, fromPo
     return { type: 'REVEAL_NEXT_CARD', ownerId: property.ownerId };
   }
 
+  // INFRA (§2.3, wired 2026-09-04). Until now this archetype had NO arm in
+  // either effect function: owning both utilities granted literally nothing,
+  // while still occupying a tier ladder and a slot in every UI that lists the
+  // archetypes. The Thế Lực panel surfaced that by saying so out loud, which
+  // is what prompted finishing it.
+  //
+  // DEVIATES from the spec on purpose, and the deviation is the whole reason
+  // it stayed unimplemented: §2.3 spends both of its effects on a "Quỹ dự
+  // trữ" (reserve fund) that exists nowhere in this codebase — no state, no
+  // deposit rule, no spending rule. Building that is a mechanic of its own,
+  // not a synergy arm. What ships instead keeps INFRA's stated identity
+  // ("POWER & SUSTAIN") using only vocabulary the engine already settles:
+  //
+  //   tier 1 (1 công ty)  — rent support only, +10% on EVERYTHING the owner
+  //                         collects (calculateRentMiddleware.js)
+  //   tier 2 (2 công ty)  — that becomes +25%, and crossing either of the
+  //                         owner's utilities costs a flat usage fee here
+  //
+  // That makes INFRA the only SUPPORT archetype on the board: cheap ($400
+  // for both), almost no threat of its own, and it multiplies whatever else
+  // you already own. Deliberately small percentages — it applies to the
+  // owner's whole portfolio, which no other archetype does, so the same
+  // number that reads as modest here would be the strongest effect in the
+  // ruleset if it were sized like CONTROL's +50%.
+  if (archetype === 'INFRA') {
+    return tier >= 2 ? { type: 'TOLL', amount: INFRA_CROSSING_FEE, ownerId: property.ownerId } : null;
+  }
+
   // MOBILITY (§2.2): a 1-step shove, aimed automatically at whichever of the
   // station owner's tiles the victim is closest to. The spec's own wording is
   // "tự động hoàn toàn, không popup hỏi ý kiến" — and that is not only a UX
@@ -293,3 +321,13 @@ function highestRentTileOf(gameState, boardTiles, ownerId) {
 }
 
 export const EXECUTION_TOLL_PER_LEVEL = 75;
+
+/**
+ * Flat fee for crossing a utility owned by someone holding BOTH of them
+ * (INFRA tier 2). Flat rather than scaled because a utility has no
+ * upgradeLevel to scale by, and small because INFRA's real payload is the
+ * portfolio-wide rent support in calculateRentMiddleware.js — this half only
+ * exists so the archetype is felt while walking past it, not just when
+ * paying rent somewhere else entirely.
+ */
+export const INFRA_CROSSING_FEE = 25;

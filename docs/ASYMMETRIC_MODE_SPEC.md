@@ -27,7 +27,7 @@ Do Thẻ Di Chuyển thường ngắn hơn Xúc xắc (3 bước vs 7 bước), 
 
 ---
 
-## 2. Các Hệ Tộc Giai Đoạn 1 (Đã cân bằng theo Traffic & Cost)
+## 2. Các Thế Lực Giai Đoạn 1 (Đã cân bằng theo Traffic & Cost)
 
 ### 2.1. 🔴🟢 BÌNH DÂN — "CONTROL" (Giá cực rẻ: ~$440)
 - **Traffic:** Nằm ở nửa đầu bàn cờ (Ô 1-8). Bị đi ngang qua nhiều gấp 2.4 lần so với Tử Địa. Cực kỳ hiệu quả trên mỗi đồng vốn.
@@ -42,20 +42,10 @@ Do Thẻ Di Chuyển thường ngắn hơn Xúc xắc (3 bước vs 7 bước), 
 
 ### 2.3. ⚡💧 HẠ TẦNG — "POWER & SUSTAIN" (Giá rẻ: $400)
 - **Mốc kích hoạt:** 1 Công ty / 2 Công ty.
-- **🚶 Đi ngang qua:** *(không có)* — xem ghi chú bên dưới.
-- **🎯 Dừng lại:** **+25% Rent** ở mốc 1 Công ty, **+50% Rent** ở mốc 2 Công ty.
+- **🚶 Đi ngang qua:** Đối thủ trả $25 phí hạ tầng (chỉ khi đủ 2 Công ty).
+- **🎯 Dừng lại:** Mọi tiền thuê chủ sở hữu thu được +10% (đủ 2 Công ty: +25%) — áp dụng trên **TẤT CẢ** các ô, kể cả ô thuộc hệ khác.
 
-> **Sửa đổi 2026-09-04 — bản này thay thế hẳn bản cũ, không phải bổ sung.**
->
-> Bản trước ghi: *"🚶 Phí quá cảnh bạn thu được +10% vào quỹ dự trữ"* và *"🎯 +25% Rent (Có Overload) + Trích Rent vào Quỹ Dự trữ"*. Cả hai vế đều dựa vào **"Quỹ dự trữ"** — và cụm từ đó, cùng với **"Overload"**, chỉ xuất hiện đúng ở hai dòng này, **không ở bất kỳ tài liệu, schema, hay dòng code nào khác**. Không có gì nói quỹ dùng để làm gì, ai sở hữu, có tiêu được không, hay có tính vào net worth không. Thêm một bể tiền mới cũng là câu hỏi về **bất biến kinh tế đóng** (`ECONOMY_SPECIFICATION.md` §4), không phải một thay đổi cục bộ.
->
-> Hệ quả thực tế của khoảng trống này: **Hạ Tầng là hệ duy nhất trong §2/§3 không có hiệu ứng nào được cài đặt** cho tới 2026-09-04 — `archetypeOf` trả về `'INFRA'` cho mọi ô công ty và `synergyTier` vẫn đếm chúng, nhưng cả `passThroughEffect`, `landingEffect` lẫn `calculateRentMiddleware` đều không có nhánh nào. Sở hữu cả hai công ty ở chế độ Đột Phá **không đem lại gì** ngoài tiền thuê cổ điển; hai ô trên bàn cờ nằm chết trong ruleset này.
->
-> Đã đưa ra cho người quyết định, kèm các phương án thay thế (quỹ làm đệm chống phá sản — đúng với chữ "SUSTAIN" trong tên hệ; hoặc cộng vào net worth ở Final Phase). **Quyết định: bỏ hẳn quỹ dự trữ, dồn toàn bộ ngân sách của hệ vào rider tiền thuê.**
->
-> Rider **tăng theo mốc** (25% → 50%) chứ không phẳng như CONTROL, để **công ty thứ hai có lý do synergy thật sự**. Nếu để phẳng, phần thưởng duy nhất khi lên mốc 2 sẽ là bước nhảy hệ số gốc mà `calculateRent` vốn đã tự làm (`diceRoll × (ownsBoth ? 10 : 4)`, `GAME_DESIGN_SPEC.md` §11), và tầng archetype sẽ không đóng góp gì ở mốc cao nhất mà nó chưa đóng góp ở mốc 1. Với cú đổ 7: **28 → 35** (1 công ty), **70 → 105** (2 công ty).
->
-> **Hạ Tầng vì vậy là hệ duy nhất chỉ có một mặt** (chỉ Dừng lại, không có Đi ngang qua). Đây là chủ ý, không phải thiếu sót.
+> **[ĐÃ SỬA 2026-09-04 — bản trên là bản thực sự chạy trong code.]** Bản gốc của mục này tiêu cả hai hiệu ứng vào một "Quỹ dự trữ" chưa từng tồn tại trong codebase (không có state, không có luật nạp, không có luật tiêu) — đó chính là lý do Hạ Tầng nằm im không hiệu ứng nào suốt từ đầu. Bản đã ship giữ nguyên định vị "POWER & SUSTAIN" (hệ hỗ trợ, rẻ, tự nó không sát thương nhưng nhân giá trị mọi thứ khác bạn có) nhưng chỉ dùng từ vựng mà engine đã biết cách thanh toán. Nếu sau này Quỹ dự trữ được xây thật, đây là chỗ để xem lại.
 
 ### 2.4. 🟣🟠 GIAO THƯƠNG — "ECONOMY" (Giá trung bình: ~$1.000)
 - **Traffic:** Rất thường xuyên bị dẫm trúng do nằm ở khu vực đối thủ chọn "lesser evil" để hạ cánh.
@@ -65,7 +55,7 @@ Do Thẻ Di Chuyển thường ngắn hơn Xúc xắc (3 bước vs 7 bước), 
 
 ---
 
-## 3. Các Hệ Tộc Giai Đoạn 2 (Đắt đỏ & Phức tạp)
+## 3. Các Thế Lực Giai Đoạn 2 (Đắt đỏ & Phức tạp)
 
 ### 3.1. 🟡🟩 THƯỢNG LƯU — "DENIAL" (Giá đắt: ~$1.480)
 - **Mốc kích hoạt:** 2 Đất / 4 Đất / 6 Đất.

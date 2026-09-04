@@ -503,7 +503,18 @@ function applyIntents(gameState, boardTiles, intents, transactionType, contextPl
       const targetPlayer = state.players.find((p) => p.id === (intent.playerId ?? contextPlayerId));
       const jailTile = boardTiles.find((t) => t.tileType === 'jail');
       const jailed = sendToJail(targetPlayer, jailTile.position);
-      state = replacePlayer(state, jailed);
+      state = {
+        ...replacePlayer(state, jailed),
+        // Third of the three real entries into jail (385 of 2543 in the same
+        // fuzz run). The drawn card is already announced separately via
+        // lastDrawnEventCardId/Seq, but that notice is short-lived and shares
+        // the screen with the jailing itself, so the reason is recorded here
+        // too rather than left to the client to correlate two unrelated
+        // fields under a timer. No viaPosition — a card relocates you
+        // directly, it does not walk you anywhere.
+        lastJailEvent: { playerId: jailed.id, reason: 'EVENT_CARD', viaPosition: null },
+        lastJailEventSeq: (state.lastJailEventSeq ?? 0) + 1,
+      };
     } else if (intent.action === 'GRANT_JAIL_CARD') {
       const targetPlayer = state.players.find((p) => p.id === (intent.playerId ?? contextPlayerId));
       state = replacePlayer(state, { ...targetPlayer, jailFreeCards: targetPlayer.jailFreeCards + 1 });
@@ -2116,6 +2127,13 @@ function moveAndResolve(gameState, boardTiles, playerId, rollResult, now) {
       // startTurn() no longer clears lastRoll; see its comment.
       lastRoll: rollToDisplay(rollResult),
       lastRollSeq: (gameState.lastRollSeq ?? 0) + 1,
+      // Why this player is suddenly in jail. currentDoublesStreak is reset to
+      // 0 on the line above, so by the time this state reaches any client the
+      // evidence is already gone — without this the table sees an ordinary
+      // pair of dice and a token teleporting to jail. No viaPosition: a 3rd
+      // double jails you from wherever you happen to be standing.
+      lastJailEvent: { playerId: player.id, reason: 'THIRD_DOUBLE', viaPosition: null },
+      lastJailEventSeq: (gameState.lastJailEventSeq ?? 0) + 1,
     };
     // (Historical note) lastRoll used to be deliberately left unset here,
     // because advanceTurn() below cascades straight into the next player's
@@ -2157,6 +2175,16 @@ function moveAndResolve(gameState, boardTiles, playerId, rollResult, now) {
       // table should see, and it now survives the turn advance.
       lastRoll: rollToDisplay(rollResult),
       lastRollSeq: (gameState.lastRollSeq ?? 0) + 1,
+      // The single most common way anyone reaches jail (1935 of 2543 across
+      // 400 fuzzed matches — see lastJailEvent's own JSDoc), and previously
+      // the least explicable: sendToJail() below rewrites currentPosition
+      // straight to the jail tile, so `newPosition` — the go_to_jail tile the
+      // player actually landed on — never reaches the client in any form.
+      // Sending it as viaPosition lets the board walk the token onto that
+      // tile before dropping it in jail, which is the whole difference
+      // between "I landed on Vào Tù" and "the game jailed me for nothing".
+      lastJailEvent: { playerId: player.id, reason: 'GO_TO_JAIL_TILE', viaPosition: newPosition },
+      lastJailEventSeq: (gameState.lastJailEventSeq ?? 0) + 1,
     };
     return advanceTurn(jailedState, boardTiles, now);
   }
@@ -2279,7 +2307,27 @@ function advanceTurn(gameState, boardTiles, now) {
   // though the same player keeps going).
   const state = { ...gameState, pendingHostileBuyoutPropertyId: null };
 
-  if (state.lastRollWasDouble) {
+  // BUG FIX 2026-09-04 (found by fuzzing 400 CLASSIC matches for unexplained
+  // jailings): the doubles bonus must not survive the player being jailed
+  // mid-turn.
+  //
+  // Both ROLL-based routes into jail already force lastRollWasDouble to false
+  // before calling this (moveAndResolve's sentToJail and go_to_jail branches),
+  // so the intent — "going to jail ends your turn immediately, doubles or
+  // not" — was already the shipped rule for two of the three routes. The
+  // third, an event card with a MOVE_TO_JAIL intent (CHAY_QUA_TOC_DO), jails
+  // the player from deep inside applyIntents and never touches that flag. A
+  // player who rolled a double and THEN drew that card therefore came back
+  // through here with lastRollWasDouble still true, was handed phase ROLLING
+  // instead of JAIL_DECISION, and rolled and moved straight back out of the
+  // jail tile as though nothing had happened — bypassing startTurn(), which
+  // is the only place inJail is ever checked for routing.
+  //
+  // Reproduced at seed 158 of the fuzz harness: a player sitting at the jail
+  // tile with inJail true, in phase ROLLING, on a live 2-double streak.
+  // Checking inJail here fixes every route at once rather than patching the
+  // card path alone, and matches what the two roll paths already do.
+  if (state.lastRollWasDouble && !getCurrentPlayer(state).inJail) {
     return { gameState: { ...state, phase: state.ruleset === 'ASYMMETRIC' ? 'PLAYING_CARD' : 'ROLLING' }, transactions: [] };
   }
 

@@ -1,5 +1,5 @@
 // Frontend mirror of backend/src/engine/synergyEngine.js's archetype system
-// (Hệ Tộc — ASYMMETRIC_MODE_SPEC.md §2/§3), for the board's own "which tiles
+// (Thế Lực — ASYMMETRIC_MODE_SPEC.md §2/§3), for the board's own "which tiles
 // are currently powering a synergy" highlight.
 //
 // Mirrored rather than shared, same standing as every other duplicated
@@ -115,4 +115,129 @@ export function synergyByTileId(properties, boardTiles) {
   }
 
   return result
+}
+
+// ── Panel data (2026-09-04) ────────────────────────────────────────────────
+// Everything below exists for SynergyPanel.jsx — the "what does each colour
+// actually DO, and how close am I" readout. Deliberately describes what the
+// ENGINE does, not what ASYMMETRIC_MODE_SPEC.md proposes: the two have
+// drifted, and a panel that promises an effect the code never applies is
+// worse than no panel. Verified against engine/synergyEngine.js's own
+// passThroughEffect()/landingEffect() switch arms, arm by arm:
+//   - CONTROL   pass-through STEP_LOSS 1        · landing: +50% rent
+//   - ECONOMY   pass-through CARD_REROLL        · landing: owner draws 2
+//   - DENIAL    pass-through REVEAL_NEXT_CARD   · landing: reveals hand 2 rounds
+//   - EXECUTION pass-through TOLL 75×level      · landing: nothing extra
+//   - MOBILITY  pass-through NUDGE 1            · landing: TELEPORT, tier 2 only
+//   - INFRA     pass-through TOLL $25, tier 2   · landing: +10%/+25% rent, ALL tiles
+//
+// CORRECTION 2026-09-04: CONTROL's landing effect was previously listed here
+// as "nothing extra" because only landingEffect() had been checked. Rent
+// riders do not live there — engine/calculateRentMiddleware.js is the second
+// place a landing effect can be implemented, and CONTROL's +50% has been in
+// it all along. Two files decide what stopping on a tile costs; a claim about
+// landing effects has to read both. EXECUTION's spec'd "Tịch thu" really is
+// absent from both, so it stays unclaimed.
+
+const ARCHETYPE_EFFECTS = {
+  CONTROL: {
+    passThrough: 'Đối thủ đi ngang qua bị trừ 1 bước',
+    landing: 'Đối thủ dừng lại: trả thêm 50% tiền thuê',
+  },
+  ECONOMY: {
+    passThrough: 'Đối thủ đi ngang qua phải bỏ 1 lá bài và rút lá khác',
+    landing: 'Đối thủ dừng lại: bạn rút ngay 2 lá bài',
+  },
+  DENIAL: {
+    passThrough: 'Đối thủ đi ngang qua bị lộ 1 lá bài cho bạn',
+    landing: 'Đối thủ dừng lại: lộ toàn bộ tay bài trong 2 vòng',
+  },
+  EXECUTION: {
+    passThrough: 'Đối thủ đi ngang qua trả phí $75 × cấp nhà',
+    landing: null,
+  },
+  MOBILITY: {
+    passThrough: 'Đối thủ đi ngang qua bị đẩy 1 bước về phía đất của bạn',
+    landing: 'Đối thủ dừng lại: bị teleport tới đất đắt nhất của bạn',
+    landingTier: 2, // gated behind tier 2 in landingEffect(); the others are not tier-gated
+  },
+  INFRA: {
+    // The SUPPORT archetype (wired 2026-09-04). Its rent line is the only one
+    // on this list that applies to tiles of EVERY archetype, not just its
+    // own — worth saying explicitly, because "+25%" reads as small until you
+    // notice it is +25% on the owner's entire portfolio.
+    passThrough: 'Đối thủ đi ngang qua trả $25 phí hạ tầng',
+    passThroughTier: 2,
+    landing: 'Mọi tiền thuê bạn thu được +10% — trên TẤT CẢ các ô, kể cả ô hệ khác',
+    landingMaxNote: 'đủ 2 công ty: +25%',
+  },
+}
+
+/** Display order for the panel — cheapest/most-trafficked archetypes first. */
+export const ARCHETYPE_ORDER = ['CONTROL', 'ECONOMY', 'DENIAL', 'EXECUTION', 'MOBILITY', 'INFRA']
+
+/** Which colour groups (or tile types) feed each archetype. */
+export const ARCHETYPE_MEMBERS = {
+  CONTROL: ['red', 'cyan'],
+  ECONOMY: ['purple', 'orange'],
+  DENIAL: ['yellow', 'green'],
+  EXECUTION: ['blue', 'darkblue'],
+  MOBILITY: [], // every `transport` tile
+  INFRA: [], // every `utility` tile
+}
+
+export function archetypeEffects(archetype) {
+  return ARCHETYPE_EFFECTS[archetype] ?? null
+}
+
+export function tierThresholds(archetype) {
+  return TIERS[archetype] ?? []
+}
+
+/**
+ * One row per archetype for a single player: how many they hold, what tier
+ * that reaches, how many more to the next tier, and how many exist on the
+ * board at all (the ceiling).
+ *
+ * `mortgaged` is reported separately and NOT counted, mirroring
+ * synergyEngine.js's archetypeCount() exactly — a mortgaged deed collects no
+ * rent, so letting it keep feeding a synergy would make "mortgage everything,
+ * keep the tier" a free ride. It is surfaced because that is a genuinely
+ * surprising way to lose a tier you thought you had.
+ */
+export function playerSynergies(properties, boardTiles, playerId) {
+  const tileById = new Map((boardTiles ?? []).map((t) => [t.id, t]))
+  const owned = new Map()
+  const mortgaged = new Map()
+  const onBoard = new Map()
+
+  for (const tile of boardTiles ?? []) {
+    const a = archetypeOf(tile)
+    if (a) onBoard.set(a, (onBoard.get(a) ?? 0) + 1)
+  }
+  for (const property of properties ?? []) {
+    if (property.ownerId !== playerId) continue
+    const a = archetypeOf(tileById.get(property.boardTileId))
+    if (!a) continue
+    if (property.mortgaged) mortgaged.set(a, (mortgaged.get(a) ?? 0) + 1)
+    else owned.set(a, (owned.get(a) ?? 0) + 1)
+  }
+
+  return ARCHETYPE_ORDER.map((archetype) => {
+    const thresholds = TIERS[archetype] ?? []
+    const count = owned.get(archetype) ?? 0
+    const tier = thresholds.filter((t) => count >= t).length
+    const nextThreshold = thresholds.find((t) => count < t) ?? null
+    return {
+      archetype,
+      owned: count,
+      mortgaged: mortgaged.get(archetype) ?? 0,
+      onBoard: onBoard.get(archetype) ?? 0,
+      tier,
+      thresholds,
+      nextThreshold,
+      meta: ARCHETYPE_META[archetype],
+      effects: ARCHETYPE_EFFECTS[archetype],
+    }
+  })
 }

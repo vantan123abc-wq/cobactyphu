@@ -83,7 +83,13 @@ function toRoomRecord(row, players) {
     joinCode: row.join_code,
     hostId: row.host_id,
     status: row.status,
-    ruleset: row.ruleset ?? 'CLASSIC',
+    // null, NOT a 'CLASSIC' default. The distinction is load-bearing: a null
+    // here means the rooms.ruleset COLUMN is missing (migration 0006 not
+    // applied to this database), which is a different fact from "this room is
+    // a Classic room" and the only thing that tells room.controller.js to fall
+    // back to its in-process cache. Collapsing the two, as this line used to,
+    // made an un-migrated database indistinguishable from an all-Classic one.
+    ruleset: row.ruleset ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     players,
@@ -98,18 +104,38 @@ function toRoomRecord(row, players) {
 export async function createRoom(supabase, roomObj) {
   requireSupabase(supabase, 'createRoom');
 
-  const { data: roomRow, error: roomError } = await supabase
-    .from('rooms')
-    .insert({
-      id: roomObj.id,
-      join_code: roomObj.joinCode,
-      host_id: roomObj.hostId,
-      status: roomObj.status ?? 'waiting_for_players',
-      created_at: roomObj.createdAt,
-      updated_at: roomObj.updatedAt ?? roomObj.createdAt,
-    })
-    .select()
-    .single();
+  const baseRow = {
+    id: roomObj.id,
+    join_code: roomObj.joinCode,
+    host_id: roomObj.hostId,
+    status: roomObj.status ?? 'waiting_for_players',
+    created_at: roomObj.createdAt,
+    updated_at: roomObj.updatedAt ?? roomObj.createdAt,
+  };
+
+  // BUG FIX 2026-09-04 — the room's chosen ruleset was never written here at
+  // all, so `rooms.ruleset` always kept its 'CLASSIC' column default and an
+  // "Đột Phá" room came back Classic from the database. room.controller.js
+  // papered over that with an in-PROCESS Map, which works right up until the
+  // backend restarts between creating a room and starting it — a 15-minute
+  // idle spindown on the free Render plan does exactly that, and the match
+  // then silently starts as Classic with no error anywhere.
+  //
+  // Written with a fallback rather than assumed, because migration
+  // 0006_room_ruleset.sql may not be applied to every environment yet and a
+  // hard failure here would break room creation outright. PostgREST reports an
+  // unknown column as 42703; that one case retries without it and leaves the
+  // controller's in-process cache as the (restart-fragile) fallback it always
+  // was, with a loud log naming the migration to run.
+  let insert = await supabase.from('rooms').insert({ ...baseRow, ruleset: roomObj.ruleset ?? 'CLASSIC' }).select().single();
+  if (insert.error?.code === '42703') {
+    console.warn(
+      '[roomRepository] rooms.ruleset column is missing — apply migration 0006_room_ruleset.sql. ' +
+        'Until then a backend restart between room creation and game start silently downgrades ASYMMETRIC rooms to CLASSIC.'
+    );
+    insert = await supabase.from('rooms').insert(baseRow).select().single();
+  }
+  const { data: roomRow, error: roomError } = insert;
   if (roomError) {
     throw new Error(`roomRepository.createRoom: ${roomError.message}`);
   }

@@ -79,6 +79,12 @@ const EMPTY_PLAYERS = [] // a stable fallback reference — `?? []` inline would
 // mid-walk.
 const STEP_MS = 220
 
+// How long the piece stands on the Go To Jail tile before being taken away.
+// The whole point of walking there at all is that the player gets to SEE the
+// cause, so it has to outlast a glance — a straight cut would look identical
+// to the teleport this replaces.
+const JAIL_HOP_PAUSE_MS = 620
+
 /**
  * Maps a tile's board `position` to a 1-indexed { row, col } grid cell,
  * for any board built from 4 corners + `edgeLength` tiles per edge — true
@@ -247,7 +253,7 @@ function useTrapBooms(lastTrapHits, lastTrapHitSeq) {
  * `staticBoard` has loaded) — callers pass a safe fallback `totalTiles` for
  * that case; nothing actually renders off it until the real board exists.
  */
-function useWalkingPositions(players, lastRoll, totalTiles) {
+function useWalkingPositions(players, lastRoll, totalTiles, jailEvent) {
   const [displayed, setDisplayed] = useState(() => {
     const m = new Map()
     for (const p of players) m.set(p.id, p.currentPosition)
@@ -255,6 +261,10 @@ function useWalkingPositions(players, lastRoll, totalTiles) {
   })
   const [lastSettled, setLastSettled] = useState(() => new Map())
   const [warpedAt, setWarpedAt] = useState(() => new Map())
+  // Second-leg timers, kept apart from timersRef's intervals so cleanup can
+  // use the right clear* for each. A player present in EITHER map is still
+  // mid-animation and must not have a fresh walk started for them.
+  const jailHopRef = useRef(new Map()) // playerId -> timeoutId
   const displayedRef = useRef(displayed)
   displayedRef.current = displayed
   const timersRef = useRef(new Map()) // playerId -> intervalId, so a real position update mid-walk doesn't start a second, overlapping walk for the same player
@@ -268,9 +278,29 @@ function useWalkingPositions(players, lastRoll, totalTiles) {
         setDisplayed((prev) => new Map(prev).set(p.id, p.currentPosition))
         continue
       }
-      if (from === p.currentPosition || timersRef.current.has(p.id)) continue
+      if (from === p.currentPosition || timersRef.current.has(p.id) || jailHopRef.current.has(p.id)) continue
 
-      const forwardDelta = ((p.currentPosition - from) % totalTiles + totalTiles) % totalTiles
+      // Landing on Go To Jail is the one move whose real destination is NOT
+      // where the player walked to: the server relocates them to the jail
+      // tile in the same transition, so `p.currentPosition` is already the
+      // jail corner and the tile that caused it never appears in any
+      // position this component is told about. gameState.lastJailEvent
+      // carries it back as `viaPosition` precisely so the walk can be shown.
+      //
+      // Deliberately self-validating rather than trusted: the waypoint is
+      // only used when walking there actually matches the reported roll. A
+      // stale event (one whose seq belongs to an earlier turn) therefore
+      // can't hijack an unrelated move — the arithmetic simply won't line up
+      // and this falls back to the normal single-leg behaviour.
+      const via =
+        jailEvent != null && jailEvent.playerId === p.id && jailEvent.viaPosition != null
+          ? jailEvent.viaPosition
+          : null
+      const viaDelta = via == null ? -1 : ((via - from) % totalTiles + totalTiles) % totalTiles
+      const useVia = via != null && lastRoll != null && viaDelta === lastRoll.total && via !== p.currentPosition
+
+      const legTarget = useVia ? via : p.currentPosition
+      const forwardDelta = ((legTarget - from) % totalTiles + totalTiles) % totalTiles
       const backwardDelta = (totalTiles - forwardDelta) % totalTiles
       const walkDirection =
         lastRoll == null ? 0 : forwardDelta === lastRoll.total ? 1 : backwardDelta === lastRoll.total ? -1 : 0
@@ -293,18 +323,36 @@ function useWalkingPositions(players, lastRoll, totalTiles) {
       setWarpedAt((prev) => (prev.has(p.id) ? new Map([...prev].filter(([id]) => id !== p.id)) : prev))
 
       let step = from
-      const target = p.currentPosition
+      const target = legTarget
+      const finalPosition = p.currentPosition
+      const playerId = p.id
       const intervalId = setInterval(() => {
         step = (step + walkDirection + totalTiles) % totalTiles
-        setDisplayed((prev) => new Map(prev).set(p.id, step))
-        if (step === target) {
-          clearInterval(intervalId)
-          timersRef.current.delete(p.id)
-        }
+        setDisplayed((prev) => new Map(prev).set(playerId, step))
+        if (step !== target) return
+
+        clearInterval(intervalId)
+        timersRef.current.delete(playerId)
+        if (target === finalPosition) return
+
+        // Second leg: they walked onto Go To Jail, stood there long enough to
+        // be seen, and are now taken to the cells. Rendered as a warp rather
+        // than a walk — being marched to jail is not a journey around the
+        // board, and walking it would retrace tiles they never crossed.
+        const hopId = setTimeout(() => {
+          jailHopRef.current.delete(playerId)
+          setWarpedAt((prev) => new Map(prev).set(playerId, finalPosition))
+          setDisplayed((prev) => new Map(prev).set(playerId, finalPosition))
+        }, JAIL_HOP_PAUSE_MS)
+        jailHopRef.current.set(playerId, hopId)
       }, STEP_MS)
       timersRef.current.set(p.id, intervalId)
     }
-  }, [players, lastRoll, totalTiles])
+    // jailEvent joins the deps for correctness, not because it needs to
+    // retrigger anything: it is a fresh object on every broadcast, exactly
+    // like `players` already is, and the in-flight guards above (timersRef /
+    // jailHopRef) are what actually stop a re-run from disturbing a walk.
+  }, [players, lastRoll, totalTiles, jailEvent])
 
   // Unmount cleanup only — deliberately not re-run per players/lastRoll
   // change (that would clear an in-flight walk on every unrelated
@@ -314,6 +362,8 @@ function useWalkingPositions(players, lastRoll, totalTiles) {
     () => () => {
       for (const id of timersRef.current.values()) clearInterval(id)
       timersRef.current.clear()
+      for (const id of jailHopRef.current.values()) clearTimeout(id)
+      jailHopRef.current.clear()
     },
     []
   )
@@ -335,6 +385,10 @@ export default function GameBoard() {
   const activeTraps = useGameStore((s) => s.currentGameState?.activeTraps) ?? EMPTY_TRAPS
   const lastTrapHits = useGameStore((s) => s.currentGameState?.lastTrapHits) ?? EMPTY_TRAPS
   const lastTrapHitSeq = useGameStore((s) => s.currentGameState?.lastTrapHitSeq) ?? 0
+  // Why someone was just jailed. Only `viaPosition` is used here (to walk the
+  // piece onto the Go To Jail tile it actually landed on); the human-readable
+  // announcement is CenterBoardArea.jsx's job.
+  const lastJailEvent = useGameStore((s) => s.currentGameState?.lastJailEvent) ?? null
   const boardZoom = useGameStore((s) => s.boardZoom)
   const boardSpin = useGameStore((s) => s.boardSpin)
   const boardTilt = useGameStore((s) => s.boardTilt)
@@ -363,7 +417,7 @@ export default function GameBoard() {
   // see useWalkingPositions's own header for why this hook must run
   // unconditionally, before the `!staticBoard` early return below.
   const totalTiles = staticBoard?.tiles?.length || 40
-  const { displayed: displayedPositions, lastSettled, warpedAt } = useWalkingPositions(players, lastRoll, totalTiles)
+  const { displayed: displayedPositions, lastSettled, warpedAt } = useWalkingPositions(players, lastRoll, totalTiles, lastJailEvent)
 
   const propertyByBoardTileId = useMemo(() => {
     const map = new Map()
@@ -405,12 +459,21 @@ export default function GameBoard() {
   // to leak a position it was never told.
   const visibleTrapByPosition = useMemo(() => {
     const map = new Map()
+    // Gated on the ruleset as well as on the data. In practice activeTraps is
+    // always empty in CLASSIC (nothing writes it there), so this changes
+    // nothing today — but it makes the mode boundary explicit rather than
+    // relying on an invariant held somewhere else, which is the same class of
+    // leak that let a stale fixture put a "bẫy ẩn" badge on a Classic board.
+    if (ruleset !== 'ASYMMETRIC') return map
     for (const trap of activeTraps) {
       if (typeof trap.tileIndex === 'number') map.set(trap.tileIndex, trap)
     }
     return map
-  }, [activeTraps])
-  const hiddenTrapCount = activeTraps.length - visibleTrapByPosition.size
+  }, [activeTraps, ruleset])
+  // Same ruleset gate as visibleTrapByPosition above, and it MUST be gated
+  // separately: this is a subtraction, so gating only the map made a Classic
+  // board report every trap as hidden rather than none at all.
+  const hiddenTrapCount = ruleset === 'ASYMMETRIC' ? activeTraps.length - visibleTrapByPosition.size : 0
 
   const trapBooms = useTrapBooms(lastTrapHits, lastTrapHitSeq)
 
