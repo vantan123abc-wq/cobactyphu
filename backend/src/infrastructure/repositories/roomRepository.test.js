@@ -38,6 +38,62 @@ test('createRoom: inserts rooms + room_players, returns the composed record with
   });
 });
 
+// ── ruleset persistence (2026-09-04) ───────────────────────────────────────
+// A real user report: "tạo chế độ mới chơi tôi chẳng thấy gì khác chế độ cũ".
+// createRoom simply never wrote the column, so every room came back Classic
+// from the database and room.controller.js was covering for it with an
+// in-PROCESS Map — which a restart between creating the room and starting it
+// silently empties. On the free Render plan that is a 15-minute idle
+// spindown, and the match then starts Classic with no error anywhere.
+
+test('createRoom: PERSISTS the ruleset, so it survives a backend restart', async () => {
+  const supabase = seededSupabase();
+  await createRoom(supabase, {
+    id: 'room-asym',
+    joinCode: 'ASYM01',
+    hostId: 'user-host',
+    ruleset: 'ASYMMETRIC',
+    status: 'waiting_for_players',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    players: [{ playerId: 'user-host', isReady: false }],
+  });
+
+  // Read back through a completely separate call, the way a restarted process
+  // would: nothing in memory, everything from the database.
+  const reloaded = await getRoomById(supabase, 'room-asym');
+  assert.equal(reloaded.ruleset, 'ASYMMETRIC');
+});
+
+test('createRoom: defaults to CLASSIC when no ruleset is given', async () => {
+  const supabase = seededSupabase();
+  await createRoom(supabase, {
+    id: 'room-classic',
+    joinCode: 'CLS001',
+    hostId: 'user-host',
+    status: 'waiting_for_players',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    players: [{ playerId: 'user-host', isReady: false }],
+  });
+  assert.equal((await getRoomById(supabase, 'room-classic')).ruleset, 'CLASSIC');
+});
+
+test('a rooms row with NO ruleset column maps to null, not CLASSIC', async () => {
+  // The distinction the controller's fallback depends on: null means
+  // "migration 0006 is not applied here", which is a different fact from
+  // "this is a Classic room" and is the only thing that tells it to consult
+  // its in-process cache. Simulated by seeding a row without the column at
+  // all, exactly as an un-migrated database would return it.
+  const supabase = seededSupabase({
+    rooms: [
+      { id: 'room-old', join_code: 'OLD001', host_id: 'user-host', status: 'waiting_for_players', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z' },
+    ],
+    room_players: [{ room_id: 'room-old', player_id: 'user-host', is_ready: false, joined_at: '2026-01-01T00:00:00.000Z', zodiac: null }],
+  });
+
+  const record = await getRoomById(supabase, 'room-old');
+  assert.equal(record.ruleset, null, 'null so the caller can tell "column absent" from "Classic room"');
+});
+
 test('getRoomById: reconstructs players via room_players + profiles join, isHost derived from host_id', async () => {
   const supabase = seededSupabase();
   const created = await createRoom(supabase, {

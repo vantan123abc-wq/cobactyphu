@@ -50,8 +50,23 @@ const JOIN_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // excludes 0/O, 1
 const MAX_JOIN_CODE_ATTEMPTS = 5; // API_CONTRACT.md: "retries generation a few times... before giving up"
 const JOINABLE_STATUSES = ['waiting_for_players', 'ready_check'];
 
-// In-memory ruleset storage to bypass DB schema changes for MVP
+// Fallback-only cache of each room's ruleset, for databases where migration
+// 0006_room_ruleset.sql has not been applied and `rooms.ruleset` therefore
+// does not exist. It used to be the ONLY store, which meant a backend restart
+// between creating a room and starting it silently turned an "Đột Phá" room
+// into a Classic one — invisible, because nothing errors and the lobby label
+// comes from the same lost Map. The real value is persisted now
+// (roomRepository.createRoom); this only answers when the column is absent.
 const roomRulesets = new Map();
+
+/**
+ * The room's real ruleset. Prefers what the database actually stored; falls
+ * back to the in-process cache only when `ruleset` came back null, which
+ * roomRepository's own mapper reserves for "the column does not exist".
+ */
+function resolveRuleset(record) {
+  return record.ruleset ?? roomRulesets.get(record.id) ?? 'CLASSIC';
+}
 
 function errorResponse(res, status, code, message) {
   return res.status(status).json({ error: { code, message } });
@@ -99,7 +114,7 @@ function toRoomResponse(record) {
     joinCode: record.joinCode,
     hostId: record.hostId,
     status: record.status,
-    ruleset: roomRulesets.get(record.id) || 'CLASSIC',
+    ruleset: resolveRuleset(record),
     players: record.players,
     createdAt: record.createdAt,
   };
@@ -449,7 +464,7 @@ export async function startGame(req, res, next) {
 
     const gameId = crypto.randomUUID()
     const boardTilesByBoard = req.app.get('boardTilesByBoard')
-    const roomRuleset = roomRulesets.get(record.id) || 'CLASSIC'
+    const roomRuleset = resolveRuleset(record)
     const gameState = initializeGameState({ gameId, roomId: record.id, ruleset: roomRuleset, players: record.players, boardTilesByBoard })
 
     let nextRecord = transitionRoom(record, { type: 'HOST_START' })

@@ -5,6 +5,7 @@ import GameBoard from '../board/GameBoard'
 import BoardCamera from '../board/BoardCamera'
 import PlayersPanel from './PlayersPanel'
 import Ledger from './Ledger'
+import SynergyPanel from './SynergyPanel'
 import MyPortfolio from './MyPortfolio'
 import GameControls from './GameControls'
 import MovementHandControls from './MovementHandControls'
@@ -112,6 +113,13 @@ export default function GameView() {
         </div>
 
         <aside className={styles.right}>
+          {/* ASYMMETRIC only, self-gating — the mode's synergies are derived
+              from a whole portfolio and stored nowhere, so without this panel
+              the only trace of them in the UI was a ring on tiles already
+              feeding one: what you finished, never what you are building
+              toward or what it would pay. First in the rail because in that
+              mode it is the readout every purchase decision is made against. */}
+          <SynergyPanel />
           <MyPortfolio />
           <CardInventory />
           <Ledger />
