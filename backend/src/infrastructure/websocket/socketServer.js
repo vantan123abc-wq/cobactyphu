@@ -454,7 +454,14 @@ export function handleReconnect(io, socket, roomRepository, supabase) {
 // 'BIDDER_NOT_ACTIVE', 'NOT_OWNER', 'INCOMPLETE_GROUP', 'UNEVEN_SELL',
 // 'ALREADY_MORTGAGED', 'NOT_MORTGAGED', ...) are exactly the codes
 // WEBSOCKET_API.md documents, not translated here, just forwarded.
-function errorCodeFor(err) {
+// Exported for tests only — same one-word-export precedent
+// serverGeneratedFields below already sets. The list of classes whose
+// .reason passes through has now been wrong three separate times
+// (InvalidInventoryActionError, InvalidJailActionError, and in 2026-09-04
+// the Draft/Trap/MovementCard trio), each time sending players a bare
+// INTERNAL_ERROR instead of the real reason — so it is pinned by a test
+// rather than left to review.
+export function errorCodeFor(err) {
   if (err.name === 'InvalidTurnActionError') return 'PHASE_MISMATCH';
   if (
     err.name === 'InvalidBidError' ||
@@ -463,7 +470,10 @@ function errorCodeFor(err) {
     err.name === 'InvalidTradeError' ||
     err.name === 'InvalidJailActionError' ||
     err.name === 'InvalidInventoryActionError' ||
-    err.name === 'InvalidForfeitError'
+    err.name === 'InvalidForfeitError' ||
+    err.name === 'InvalidMovementCardError' ||
+    err.name === 'InvalidDraftActionError' ||
+    err.name === 'InvalidTrapActionError'
   ) {
     return err.reason;
   }
@@ -589,20 +599,25 @@ async function persistAndBroadcast(io, supabase, roomId, actionType, previousGam
   // total auction time when bids keep coming.
   let deadlineAt;
   if (actionType === 'PLACE_BID' && result.gameState.phase === 'FLASH_AUCTION_ACTIVE') {
-    // Cancel any existing timer and start a fresh 5-second one.
-    turnTimers.cancel(roomId);
-    const nowMs = Date.now();
-    const extendedDeadline = new Date(nowMs + FLASH_AUCTION_BID_EXTENSION_SECONDS * 1000).toISOString();
-    deadlineAt = turnTimers.start(roomId, 'FLASH_AUCTION_ACTIVE', (phase) => {
-      handleTurnTimeout(io, supabase, roomId, phase, boardTilesByBoard).catch((err) => {
-        console.error(`turnTimers: unhandled error processing a '${phase}' timeout for room '${roomId}':`, err.message);
-      });
-    });
-    // Override the returned deadline with our custom extended one.
-    // TimerManager.start() already scheduled FLASH_AUCTION_ACTIVE's 5s base,
-    // which equals our extension — so the scheduled callback fires at the right
-    // time. We just need the broadcast value to match.
-    deadlineAt = extendedDeadline;
+    // start() both schedules AND returns the extension deadline, so the
+    // countdown players see is by construction the moment the timer really
+    // fires. This used to hand-compute the broadcast deadline and discard
+    // start()'s own, which agreed only because FLASH_AUCTION_BID_EXTENSION_
+    // SECONDS and FLASH_AUCTION_ACTIVE's base duration are both 5 — an
+    // undeclared coupling between two constants that are free to change
+    // independently (the base already moved 15 -> 5 once). Passing the
+    // duration explicitly removes it. start() cancels any existing timer
+    // itself, so no separate cancel() is needed here.
+    deadlineAt = turnTimers.start(
+      roomId,
+      'FLASH_AUCTION_ACTIVE',
+      (phase) => {
+        handleTurnTimeout(io, supabase, roomId, phase, boardTilesByBoard).catch((err) => {
+          console.error(`turnTimers: unhandled error processing a '${phase}' timeout for room '${roomId}':`, err.message);
+        });
+      },
+      FLASH_AUCTION_BID_EXTENSION_SECONDS
+    );
   } else {
     deadlineAt = scheduleTurnTimer(io, supabase, roomId, result.gameState, boardTilesByBoard);
   }

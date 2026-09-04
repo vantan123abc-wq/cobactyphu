@@ -447,11 +447,25 @@ export class TimerManager {
    * @param {(phase: string, deadlineAt: string) => void} onTimeout - called when this timer fires; never called if cancelled first
    * @returns {string} deadlineAt (ISO timestamp) — broadcast this to clients per §7
    */
-  start(roomId, phase, onTimeout) {
+  /**
+   * @param {number} [durationSecondsOverride] - run this timer for an explicit
+   *   duration instead of the phase's own entry in TIMER_DURATIONS_SECONDS.
+   *   Added 2026-09-04 for FLASH_AUCTION_ACTIVE's per-bid extension: that
+   *   caller wants FLASH_AUCTION_BID_EXTENSION_SECONDS, and used to get it
+   *   only because that constant and the phase's base duration both happen to
+   *   be 5 — it hand-computed the deadline it broadcast and threw away the one
+   *   this method actually scheduled. Changing either constant would have
+   *   silently desynced the countdown players see from the moment the auction
+   *   really closes, with nothing to catch it. Stated explicitly now.
+   */
+  start(roomId, phase, onTimeout, durationSecondsOverride) {
     this.cancel(roomId);
 
     const startedAt = this._now();
-    const deadlineAt = computeDeadline(startedAt, phase);
+    const deadlineAt =
+      durationSecondsOverride === undefined
+        ? computeDeadline(startedAt, phase)
+        : new Date(new Date(startedAt).getTime() + durationSecondsOverride * 1000).toISOString();
     const delayMs = new Date(deadlineAt).getTime() - new Date(startedAt).getTime();
 
     const handle = this._schedule(() => {

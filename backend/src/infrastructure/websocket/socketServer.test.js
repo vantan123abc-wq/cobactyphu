@@ -12,6 +12,7 @@ import {
   isOffline,
   activeTurnTimerDeadline,
   serverGeneratedFields,
+  errorCodeFor,
   _resetForTests as resetSocketServerState,
 } from './socketServer.js';
 import { createGameState, createPlayerGameState } from '../../domain/gameState.js';
@@ -1789,4 +1790,74 @@ test('C2S_RECONNECT reports the currently-scheduled deadlineAt without resetting
   await flushMicrotasks();
 
   assert.equal(io._broadcasts.length, 2); // the original timer's own AUCTION_TIMEOUT firing
+});
+
+// --- PLAY_MOVEMENT_CARD's server-generated fields (2026-09-04) ---
+//
+// serverGeneratedFields read MOVEMENT_CARDS while this module never imported
+// it, so EVERY movement card threw `ReferenceError: MOVEMENT_CARDS is not
+// defined`. The throw came from the object literal that builds `action`, which
+// sits outside handleGameAction's try/catch — so the player received no
+// S2C_ACTION_REJECTED at all and the failure escaped as an unhandled promise
+// rejection. Identical in shape to the frontend's `currentAuctionFee` crash,
+// and invisible for the same reason: nothing linted this package.
+// `npm run lint` now fails on it.
+function asymPlayingCardState(movementHand) {
+  return createGameState({
+    id: 'g', roomId: 'r', boardId: 'small', ruleset: 'ASYMMETRIC', status: 'in_progress',
+    phase: 'PLAYING_CARD', currentTurnIndex: 0,
+    players: [
+      createPlayerGameState({ id: 'bank', gameId: 'g', isBank: true, currentBalance: 17000 }),
+      createPlayerGameState({ id: 'sg1', gameId: 'g', playerId: 'su1', turnOrder: 0, currentBalance: 1500, movementHand }),
+    ],
+  });
+}
+
+test('serverGeneratedFields: PLAY_MOVEMENT_CARD resolves the card dictionary instead of throwing ReferenceError', () => {
+  // A fixed-step card needs nothing generated — but reaching that conclusion
+  // requires MOVEMENT_CARDS to actually be in scope.
+  assert.deepEqual(
+    serverGeneratedFields('PLAY_MOVEMENT_CARD', asymPlayingCardState(['MOVE_7']), { cardId: 'MOVE_7' }, () => 0.5),
+    {}
+  );
+});
+
+test('serverGeneratedFields: a `random` movement card gets a server-rolled cardRoll, never the client-claimed one', () => {
+  const injected = serverGeneratedFields(
+    'PLAY_MOVEMENT_CARD',
+    asymPlayingCardState(['MOVE_RANDOM_2_12']),
+    { cardId: 'MOVE_RANDOM_2_12', cardRoll: 12 }, // a client claiming the best possible roll
+    () => 0 // forces 1+1
+  );
+  assert.equal(injected.cardRoll, 2, 'the server roll must overwrite the client-claimed one');
+});
+
+test('serverGeneratedFields: an unknown or missing movement card id is a clean no-op, not a crash', () => {
+  const gs = asymPlayingCardState([]);
+  assert.deepEqual(serverGeneratedFields('PLAY_MOVEMENT_CARD', gs, { cardId: 'NOPE' }, () => 0.5), {});
+  assert.deepEqual(serverGeneratedFields('PLAY_MOVEMENT_CARD', gs, undefined, () => 0.5), {});
+});
+
+// --- Error reasons must survive the trip to the client (2026-09-04) ---
+//
+// errorCodeFor passes `.reason` through for the domain error classes and maps
+// everything else to INTERNAL_ERROR. Three classes carrying a real reason were
+// missing from that list — InvalidMovementCardError, and the Draft/Trap pair
+// added with the ASYMMETRIC work — so their rejections all reached players as
+// a bare INTERNAL_ERROR. This file's own history records the same defect twice
+// before (InvalidInventoryActionError, InvalidJailActionError), which is why
+// this is pinned rather than left to review.
+test('every domain error class that carries a reason reports that reason, not INTERNAL_ERROR', () => {
+  const classes = [
+    'InvalidBidError', 'EventChoiceError', 'InvalidPropertyActionError', 'InvalidTradeError',
+    'InvalidJailActionError', 'InvalidInventoryActionError', 'InvalidForfeitError',
+    'InvalidMovementCardError', 'InvalidDraftActionError', 'InvalidTrapActionError',
+  ];
+  for (const name of classes) {
+    const err = Object.assign(new Error('x'), { name, reason: 'A_REAL_REASON' });
+    assert.equal(errorCodeFor(err), 'A_REAL_REASON', name + ' must pass its reason through');
+  }
+  assert.equal(errorCodeFor(Object.assign(new Error('x'), { name: 'InvalidTurnActionError' })), 'PHASE_MISMATCH');
+  assert.equal(errorCodeFor(new TypeError('x')), 'MALFORMED_PAYLOAD');
+  assert.equal(errorCodeFor(new Error('x')), 'INTERNAL_ERROR');
 });
