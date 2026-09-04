@@ -175,10 +175,21 @@ export async function getRoomByJoinCode(supabase, joinCode) {
  *   present on roomObj.
  * @returns {Promise<RoomRecord|null>} null if no room with this id exists
  */
-export async function updateRoom(supabase, roomId, roomObj) {
+export async function updateRoom(supabase, roomId, roomObj, knownExisting) {
   requireSupabase(supabase, 'updateRoom');
 
-  const existing = await getRoomById(supabase, roomId);
+  // `knownExisting` (2026-09-04): every caller in room.controller.js —
+  // setReady, setZodiac, startGame, leaveRoom, kickPlayer — has ALREADY
+  // fetched this exact record with getRoomById, for its own membership/status
+  // checks, immediately before calling here. Re-fetching it cost three more
+  // sequential Supabase round trips per lobby action (rooms, room_players,
+  // profiles). Measured 2026-09-04: the deployed backend runs in Render's
+  // gcp-us-west1 (Oregon) — confirmed from DNS — while Supabase answers from
+  // Asia, so each of those is a Pacific crossing of roughly 180ms. The
+  // redundant read alone was over half a second of dead time on every
+  // "Sẵn Sàng" click. Optional, so any caller that genuinely has no record
+  // still gets the old behaviour.
+  const existing = knownExisting ?? (await getRoomById(supabase, roomId));
   if (!existing) {
     return null;
   }
@@ -212,32 +223,58 @@ export async function updateRoom(supabase, roomId, roomObj) {
     }
   }
 
+  // ONE upsert for the whole roster (2026-09-04), not a sequential
+  // update-or-insert per player. `room_players`' primary key is
+  // (room_id, player_id) — migration 0001 — so an upsert on that conflict
+  // target expresses exactly what this loop was doing by hand, and PostgREST
+  // applies the whole batch in a single statement. The loop cost one Pacific
+  // round trip PER PLAYER: at a 4-player table that was four sequential
+  // ~180ms hops for a change that only ever touches one player's own row.
+  //
+  // `joined_at` is deliberately omitted for existing rows rather than
+  // defaulted: sending `new Date()` for every row would rewrite current
+  // members' join times on every ready-toggle, and fetchPlayers sorts the
+  // roster by exactly that column — so the lobby order would reshuffle on
+  // any update. The column has a `DEFAULT now()`, which covers genuinely new
+  // rows, so leaving it out both fixes that and keeps inserts correct.
   const existingPlayerIds = new Set(existing.players.map((p) => p.playerId));
-  for (const p of roomObj.players ?? []) {
-    if (existingPlayerIds.has(p.playerId)) {
-      const { error: updError } = await supabase
-        .from('room_players')
-        .update({ is_ready: p.isReady, zodiac: p.zodiac ?? null })
-        .eq('room_id', roomId)
-        .eq('player_id', p.playerId);
-      if (updError) {
-        throw new Error(`roomRepository.updateRoom: failed to update room_players: ${updError.message}`);
-      }
-    } else {
-      const { error: insError } = await supabase.from('room_players').insert({
-        room_id: roomId,
-        player_id: p.playerId,
-        is_ready: p.isReady ?? false,
-        joined_at: new Date().toISOString(),
-        zodiac: p.zodiac ?? null,
-      });
-      if (insError) {
-        throw new Error(`roomRepository.updateRoom: failed to insert room_players: ${insError.message}`);
-      }
+  const playerRows = (roomObj.players ?? []).map((p) => ({
+    room_id: roomId,
+    player_id: p.playerId,
+    is_ready: p.isReady ?? false,
+    zodiac: p.zodiac ?? null,
+    ...(existingPlayerIds.has(p.playerId) ? {} : { joined_at: new Date().toISOString() }),
+  }));
+  if (playerRows.length > 0) {
+    const { error: upsertError } = await supabase
+      .from('room_players')
+      .upsert(playerRows, { onConflict: 'room_id,player_id' });
+    if (upsertError) {
+      throw new Error(`roomRepository.updateRoom: failed to upsert room_players: ${upsertError.message}`);
     }
   }
 
-  const players = await fetchPlayers(supabase, roomId, row.host_id);
+  // The roster is rebuilt from what was just written plus the display data
+  // the caller already held, instead of a further two-query re-read
+  // (room_players + profiles). Nothing here is a guess: is_ready/zodiac are
+  // the values this function just persisted, displayName/avatarUrl come from
+  // `existing` (they live in `profiles`, and no room mutation can change
+  // them), and isHost is recomputed against the row's own fresh host_id so a
+  // host transfer on leave is still reflected. Order follows the caller's
+  // roster, which is itself derived from `existing` — i.e. fetchPlayers'
+  // joined_at ordering, preserved.
+  const knownById = new Map(existing.players.map((p) => [p.playerId, p]));
+  const players = (roomObj.players ?? []).map((p) => {
+    const known = knownById.get(p.playerId);
+    return {
+      playerId: p.playerId,
+      displayName: p.displayName ?? known?.displayName ?? p.playerId,
+      avatarUrl: p.avatarUrl ?? known?.avatarUrl ?? null,
+      isReady: p.isReady ?? false,
+      isHost: p.playerId === row.host_id,
+      zodiac: p.zodiac ?? null,
+    };
+  });
   return toRoomRecord(row, players);
 }
 

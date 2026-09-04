@@ -638,11 +638,16 @@ test('joinRoom: broadcasts S2C_ROOM_UPDATED to the room with the current roomSta
   await joinRoom(req, mockRes());
 
   assert.equal(io.emitted.length, 1);
-  assert.deepEqual(io.emitted[0], {
-    roomId: created.roomId,
-    event: 'S2C_ROOM_UPDATED',
-    payload: { roomId: created.roomId, roomStatus: 'waiting_for_players' },
-  });
+  assert.equal(io.emitted[0].roomId, created.roomId);
+  assert.equal(io.emitted[0].event, 'S2C_ROOM_UPDATED');
+  assert.equal(io.emitted[0].payload.roomId, created.roomId);
+  assert.equal(io.emitted[0].payload.roomStatus, 'waiting_for_players');
+  // The roster rides along as of 2026-09-04, so no client has to spend three
+  // more sequential Supabase round trips re-fetching what the server already
+  // had in hand — see notifyRoomUpdated's own header for the measurement.
+  assert.ok(Array.isArray(io.emitted[0].payload.room?.players), 'the push must carry the roster');
+  assert.equal(io.emitted[0].payload.room.roomId, created.roomId);
+  assert.equal(io.emitted[0].payload.room.status, 'waiting_for_players');
 });
 
 test('setReady: broadcasts S2C_ROOM_UPDATED reflecting the post-transition roomStatus (ready_check)', async () => {
@@ -654,11 +659,16 @@ test('setReady: broadcasts S2C_ROOM_UPDATED reflecting the post-transition roomS
   await setReady(req, mockRes());
 
   assert.equal(io.emitted.length, 1);
-  assert.deepEqual(io.emitted[0], {
-    roomId: created.roomId,
-    event: 'S2C_ROOM_UPDATED',
-    payload: { roomId: created.roomId, roomStatus: 'ready_check' },
-  });
+  assert.equal(io.emitted[0].roomId, created.roomId);
+  assert.equal(io.emitted[0].event, 'S2C_ROOM_UPDATED');
+  assert.equal(io.emitted[0].payload.roomId, created.roomId);
+  assert.equal(io.emitted[0].payload.roomStatus, 'ready_check');
+  // The roster rides along as of 2026-09-04, so no client has to spend three
+  // more sequential Supabase round trips re-fetching what the server already
+  // had in hand — see notifyRoomUpdated's own header for the measurement.
+  assert.ok(Array.isArray(io.emitted[0].payload.room?.players), 'the push must carry the roster');
+  assert.equal(io.emitted[0].payload.room.roomId, created.roomId);
+  assert.equal(io.emitted[0].payload.room.status, 'ready_check');
 });
 
 test('startGame: broadcasts S2C_ROOM_UPDATED with roomStatus in_progress — the field App.jsx\'s own gameHasStarted check reads for every non-acting player', async () => {
@@ -671,11 +681,16 @@ test('startGame: broadcasts S2C_ROOM_UPDATED with roomStatus in_progress — the
   await startGame(req, mockRes());
 
   assert.equal(io.emitted.length, 1);
-  assert.deepEqual(io.emitted[0], {
-    roomId: created.roomId,
-    event: 'S2C_ROOM_UPDATED',
-    payload: { roomId: created.roomId, roomStatus: 'in_progress' },
-  });
+  assert.equal(io.emitted[0].roomId, created.roomId);
+  assert.equal(io.emitted[0].event, 'S2C_ROOM_UPDATED');
+  assert.equal(io.emitted[0].payload.roomId, created.roomId);
+  assert.equal(io.emitted[0].payload.roomStatus, 'in_progress');
+  // The roster rides along as of 2026-09-04, so no client has to spend three
+  // more sequential Supabase round trips re-fetching what the server already
+  // had in hand — see notifyRoomUpdated's own header for the measurement.
+  assert.ok(Array.isArray(io.emitted[0].payload.room?.players), 'the push must carry the roster');
+  assert.equal(io.emitted[0].payload.room.roomId, created.roomId);
+  assert.equal(io.emitted[0].payload.room.status, 'in_progress');
 });
 
 test('startGame: a failure persisting the room status leaves NO live game behind — the room stays startable instead of becoming permanently unplayable', async () => {
@@ -721,11 +736,16 @@ test('leaveRoom: broadcasts S2C_ROOM_UPDATED so the remaining players refresh th
   await leaveRoom(req, mockRes());
 
   assert.equal(io.emitted.length, 1);
-  assert.deepEqual(io.emitted[0], {
-    roomId: created.roomId,
-    event: 'S2C_ROOM_UPDATED',
-    payload: { roomId: created.roomId, roomStatus: 'waiting_for_players' },
-  });
+  assert.equal(io.emitted[0].roomId, created.roomId);
+  assert.equal(io.emitted[0].event, 'S2C_ROOM_UPDATED');
+  assert.equal(io.emitted[0].payload.roomId, created.roomId);
+  assert.equal(io.emitted[0].payload.roomStatus, 'waiting_for_players');
+  // The roster rides along as of 2026-09-04, so no client has to spend three
+  // more sequential Supabase round trips re-fetching what the server already
+  // had in hand — see notifyRoomUpdated's own header for the measurement.
+  assert.ok(Array.isArray(io.emitted[0].payload.room?.players), 'the push must carry the roster');
+  assert.equal(io.emitted[0].payload.room.roomId, created.roomId);
+  assert.equal(io.emitted[0].payload.room.status, 'waiting_for_players');
 });
 
 test('kickPlayer: broadcasts S2C_ROOM_UPDATED so the remaining players refresh their roster', async () => {
@@ -737,9 +757,96 @@ test('kickPlayer: broadcasts S2C_ROOM_UPDATED so the remaining players refresh t
   await kickPlayer(req, mockRes());
 
   assert.equal(io.emitted.length, 1);
-  assert.deepEqual(io.emitted[0], {
-    roomId: created.roomId,
-    event: 'S2C_ROOM_UPDATED',
-    payload: { roomId: created.roomId, roomStatus: 'waiting_for_players' },
-  });
+  assert.equal(io.emitted[0].roomId, created.roomId);
+  assert.equal(io.emitted[0].event, 'S2C_ROOM_UPDATED');
+  assert.equal(io.emitted[0].payload.roomId, created.roomId);
+  assert.equal(io.emitted[0].payload.roomStatus, 'waiting_for_players');
+  // The roster rides along as of 2026-09-04, so no client has to spend three
+  // more sequential Supabase round trips re-fetching what the server already
+  // had in hand — see notifyRoomUpdated's own header for the measurement.
+  assert.ok(Array.isArray(io.emitted[0].payload.room?.players), 'the push must carry the roster');
+  assert.equal(io.emitted[0].payload.room.roomId, created.roomId);
+  assert.equal(io.emitted[0].payload.room.status, 'waiting_for_players');
+});
+
+
+// --- The pushed roster must be the POST-mutation one (2026-09-04) ---
+//
+// notifyRoomUpdated now broadcasts the roster instead of telling every client
+// to re-fetch it (three more sequential Supabase round trips each, from a
+// Render backend in Oregon to a database in Asia — see that function's own
+// header for the measurement). The one way that can go genuinely wrong is
+// broadcasting a record captured BEFORE the mutation, which would arrive
+// already stale. leave/kick are the sharp cases: both are removals, so a
+// pre-update roster would still list the departed player and no lobby would
+// ever drop them.
+
+test('leaveRoom: the broadcast roster no longer contains the player who left', async () => {
+  const created = await createRoomAs('user-host');
+  await joinAs('user-guest', created.joinCode);
+  const io = fakeIo();
+
+  await leaveRoom(mockReq({ user: { id: 'user-guest' }, params: { id: created.roomId }, io }), mockRes());
+
+  assert.deepEqual(io.emitted[0].payload.room.players.map((p) => p.playerId), ['user-host']);
+});
+
+test('kickPlayer: the broadcast roster no longer contains the kicked player', async () => {
+  const created = await createRoomAs('user-host');
+  await joinAs('user-guest', created.joinCode);
+  const io = fakeIo();
+
+  await kickPlayer(
+    mockReq({ user: { id: 'user-host' }, params: { id: created.roomId }, body: { targetPlayerId: 'user-guest' }, io }),
+    mockRes()
+  );
+
+  assert.deepEqual(io.emitted[0].payload.room.players.map((p) => p.playerId), ['user-host']);
+});
+
+test('setReady: the broadcast roster already carries the new ready flag', async () => {
+  const created = await createRoomAs('user-host');
+  await joinAs('user-guest', created.joinCode);
+  const io = fakeIo();
+
+  await setReady(mockReq({ user: { id: 'user-guest' }, params: { id: created.roomId }, body: { ready: true }, io }), mockRes());
+
+  const guest = io.emitted[0].payload.room.players.find((p) => p.playerId === 'user-guest');
+  assert.equal(guest.isReady, true, 'the pushed roster is what every other client renders — it must already be current');
+  assert.ok(guest.displayName, 'displayName must survive the no-refetch rebuild');
+});
+
+// updateRoom stopped re-reading the roster from the database after writing it
+// (two more round trips) and rebuilds it from what it just persisted instead.
+// These two pin the parts of that rebuild that could silently regress.
+test('a ready-toggle preserves every other player row and the lobby ordering', async () => {
+  const created = await createRoomAs('user-host');
+  await joinAs('user-a', created.joinCode);
+  await joinAs('user-b', created.joinCode);
+  await setReadyAs('user-a', created.roomId, true);
+
+  const io = fakeIo();
+  await setReady(mockReq({ user: { id: 'user-b' }, params: { id: created.roomId }, body: { ready: true }, io }), mockRes());
+
+  const players = io.emitted[0].payload.room.players;
+  assert.deepEqual(players.map((p) => p.playerId), ['user-host', 'user-a', 'user-b'], 'join order must stay stable across updates');
+  assert.equal(players.find((p) => p.playerId === 'user-a').isReady, true, "another player's ready flag must not be clobbered");
+  assert.equal(players.find((p) => p.playerId === 'user-host').isHost, true);
+});
+
+test('the rebuilt roster still matches what a fresh GET /rooms/:id returns', async () => {
+  const created = await createRoomAs('user-host');
+  await joinAs('user-a', created.joinCode);
+  await joinAs('user-b', created.joinCode);
+
+  const io = fakeIo();
+  await setReady(mockReq({ user: { id: 'user-a' }, params: { id: created.roomId }, body: { ready: true }, io }), mockRes());
+  const pushed = io.emitted[0].payload.room;
+
+  const res = mockRes();
+  await getRoom(mockReq({ user: { id: 'user-a' }, params: { id: created.roomId } }), res);
+
+  assert.deepEqual(pushed.players, res.body.players, 'the no-refetch rebuild must agree with the database read it replaced');
+  assert.equal(pushed.hostId, res.body.hostId);
+  assert.equal(pushed.status, res.body.status);
 });

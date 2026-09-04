@@ -27,6 +27,7 @@ export const useGameStore = create((set) => ({
   // 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
   connectionStatus: 'disconnected',
   roomState: null,
+  pushedRoom: null, // roster carried by the latest S2C_ROOM_UPDATED (2026-09-04) — same shape GET /rooms/:id returns; null when the server sent none
   roomUpdatedAt: null, // bumped whenever S2C_ROOM_UPDATED arrives (WEBSOCKET_API.md §6, wired 2026-08-21) — Lobby.jsx watches this to trigger an immediate roster re-fetch, on top of its own existing 3s poll, not instead of it
   roomExitNotice: null, // set by Lobby.jsx when its own GET /rooms/:id re-fetch 404s (NOT_FOUND) while roomState still points at that room — the honest "you're no longer a member" signal for a kicked player, who otherwise only ever finds out passively (leave/kick UI slice, 2026-08-21). LobbyDiagnostic.jsx shows and dismisses it, since Lobby.jsx itself unmounts the instant roomState clears
   currentGameState: null,
@@ -128,9 +129,20 @@ export const useGameStore = create((set) => ({
   // own effect fires. A no-op if roomState doesn't exist yet — the push
   // implies this client already joined the room at some point, but a race
   // (e.g. this socket reconnecting) could in principle deliver it first.
-  applyRoomUpdated: ({ roomStatus }) =>
+  // `room` (2026-09-04) is the full roster the server now sends along with
+  // the push, in the exact shape GET /rooms/:id returns. Before this, the
+  // push only said "something changed" and every client answered it with its
+  // own REST re-fetch — three sequential Supabase round trips, from a Render
+  // backend in Oregon to a database in Asia, for players sitting in Vietnam.
+  // End to end that was roughly a second between one player pressing
+  // "Sẵn Sàng" and anyone else's screen showing it. Stashing it here lets
+  // Lobby.jsx render straight from the push and skip the round trip; an
+  // older server that sends no `room` leaves this null and the existing
+  // re-fetch path still runs.
+  applyRoomUpdated: ({ roomStatus, room }) =>
     set((state) => ({
       roomState: state.roomState ? { ...state.roomState, roomStatus } : state.roomState,
+      pushedRoom: room ?? null,
       roomUpdatedAt: Date.now(),
     })),
 
@@ -224,6 +236,7 @@ export const useGameStore = create((set) => ({
   resetAfterGame: () =>
     set({
       roomState: null,
+      pushedRoom: null, // a roster from the finished match must not leak into the next lobby
       currentGameState: null,
       stateVersion: null,
       transactions: [],
