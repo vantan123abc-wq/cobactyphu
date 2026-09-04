@@ -3979,3 +3979,132 @@ test('END_TURN, on the real round-wrap boundary, prunes expired traps but keeps 
   assert.equal(gameState.roundNumber, 5, 'the round really did wrap');
   assert.deepEqual(gameState.activeTraps.map((t) => t.tileIndex), [2], 'the round-4 trap is pruned, the round-9 one survives');
 });
+
+// ===========================================================================
+// PLAY_MOVEMENT_CARD defects found by fuzzing (2026-09-04). The whole path was
+// unreachable in production until socketServer.js's missing MOVEMENT_CARDS
+// import was fixed — once it executed, three more defects sat behind it. One
+// regression test each, so none of them can come back quietly.
+// ===========================================================================
+
+// Every buyable tile needs a real Property row — resolveTile refuses a buyable
+// landing without one, exactly as a real game (initializeGameState creates one
+// per buyable tile up front). `owned` assigns owners by tile id.
+function movementCardState({ position = 0, balance = 1500, hand = ['MOVE_6'], owned = {} } = {}) {
+  const board = buildSmallBoard();
+  const properties = board
+    .filter((t) => ['property', 'transport', 'utility'].includes(t.tileType))
+    .map((t) => createProperty({ id: 'pr-' + t.id, gameId: 'g', boardTileId: t.id, ownerId: owned[t.id] ?? null }));
+  return createGameState({
+    id: 'g', roomId: 'r', boardId: 'small', ruleset: 'ASYMMETRIC', status: 'in_progress',
+    phase: 'PLAYING_CARD', currentTurnIndex: 0,
+    players: [
+      createPlayerGameState({ id: 'bank', gameId: 'g', isBank: true, currentBalance: 17000 }),
+      createPlayerGameState({ id: 'mc1', gameId: 'g', playerId: 'mu1', turnOrder: 0, currentBalance: balance, currentPosition: position, movementHand: hand }),
+      createPlayerGameState({ id: 'mc2', gameId: 'g', playerId: 'mu2', turnOrder: 1, currentBalance: 1500 }),
+    ],
+    properties,
+  });
+}
+
+const playMovementCard = (gs, cardId) =>
+  transitionTurn(
+    gs,
+    buildSmallBoard(),
+    { type: 'PLAY_MOVEMENT_CARD', payload: { playerId: 'mc1', cardId }, clientActionId: 'mc-1' },
+    '2026-09-04T00:00:00.000Z'
+  );
+
+test('PLAY_MOVEMENT_CARD: landing on a utility does not throw — resolveLanding gets a real dice value, not `now`', () => {
+  // resolveLanding's signature is (gameState, boardTiles, playerId, diceTotal,
+  // now); this call site passed only four arguments, so `now` (an ISO string)
+  // landed in the diceTotal slot and calculateRent rejected it with "diceRoll
+  // is required for utility rent". t6 is the utility, 6 steps from GO.
+  const result = playMovementCard(movementCardState({ position: 0, hand: ['MOVE_6'], owned: { t6: 'mc2' } }), 'MOVE_6');
+
+  assert.equal(result.gameState.players.find((p) => p.id === 'mc1').currentPosition, 6);
+  // UTILITY_DICE_FALLBACK (7) x 4 for a single-utility owner — the same
+  // convention moveByStepsAndResolve already uses for card-driven landings.
+  const rentTx = result.transactions.find((t) => t.transactionType === 'rent');
+  assert.ok(rentTx, 'landing on an owned utility must produce a rent transaction');
+  assert.equal(rentTx.amount, 28);
+});
+
+test('PLAY_MOVEMENT_CARD: crossing GO pays the salary under the listed transactionType', () => {
+  // This site said 'pass_go', which is not in applyTransaction's
+  // TRANSACTION_TYPES — so any movement card that lapped the board threw.
+  const result = playMovementCard(movementCardState({ position: 33, hand: ['MOVE_5'] }), 'MOVE_5');
+
+  assert.equal(result.gameState.players.find((p) => p.id === 'mc1').currentPosition, 2);
+  assert.ok(
+    result.transactions.find((t) => t.transactionType === 'pass_go_salary'),
+    'passing GO by movement card must credit the salary'
+  );
+});
+
+test('PLAY_MOVEMENT_CARD: a card the player cannot afford is a clean domain rejection, not a negative balance', () => {
+  // applyTransaction's own RangeError says an unaffordable VOLUNTARY purchase
+  // must be refused before reaching it; nothing checked, so $43 playing
+  // SPRINT_12 ($100) drove the balance to -$57 and reported INTERNAL_ERROR.
+  assert.throws(
+    () => playMovementCard(movementCardState({ balance: 43, hand: ['SPRINT_12'] }), 'SPRINT_12'),
+    (err) => err.name === 'InvalidMovementCardError' && err.reason === 'INSUFFICIENT_BALANCE'
+  );
+});
+
+test('PLAY_MOVEMENT_CARD: a card the player CAN afford still charges exactly its cost', () => {
+  const result = playMovementCard(movementCardState({ balance: 500, hand: ['STEP_2'] }), 'STEP_2');
+  assert.equal(result.transactions.find((t) => t.transactionType === 'movement_card_cost').amount, 50);
+  assert.equal(result.gameState.players.find((p) => p.id === 'mc1').currentPosition, 2);
+});
+
+// --- FORFEIT_MATCH when the same step leaves NOBODY standing (2026-09-04) ---
+//
+// Found by fuzzing. A live auction whose leader has since been drained below
+// their own winning bid is settled as part of the current player's forfeit —
+// so one action bankrupts two players: the forfeiter by forfeiting, the leader
+// by a bid they can no longer cover. checkElimination tested `=== 1` survivor,
+// so zero read as "not over", and resolveForfeit fell through to advanceTurn(),
+// whose next-player scan found nobody: `TypeError: Cannot read properties of
+// undefined (reading 'turnOrder')`. errorCodeFor maps a bare TypeError to
+// MALFORMED_PAYLOAD, so the player who pressed "Đầu hàng" was told their
+// payload was malformed — and the room was unrecoverable from there, because
+// every retry failed identically.
+test('FORFEIT_MATCH: a forfeit that leaves zero solvent players ends the match instead of crashing', () => {
+  const board = buildSmallBoard();
+  const properties = board
+    .filter((t) => ['property', 'transport', 'utility'].includes(t.tileType))
+    .map((t) => createProperty({ id: 'zs-' + t.id, gameId: 'g', boardTileId: t.id }));
+
+  const gs = createGameState({
+    id: 'g', roomId: 'r', boardId: 'small', status: 'in_progress',
+    phase: 'POST_ACTIONS', currentTurnIndex: 3,
+    players: [
+      createPlayerGameState({ id: 'bank', gameId: 'g', isBank: true, currentBalance: 14000 }),
+      createPlayerGameState({ id: 'z0', gameId: 'g', playerId: 'zu0', turnOrder: 0, currentBalance: 0, bankrupt: true, bankruptAt: '2026-09-04T01:00:00.000Z' }),
+      createPlayerGameState({ id: 'z1', gameId: 'g', playerId: 'zu1', turnOrder: 1, currentBalance: 283 }),
+      createPlayerGameState({ id: 'z2', gameId: 'g', playerId: 'zu2', turnOrder: 2, currentBalance: 0, bankrupt: true, bankruptAt: '2026-09-04T02:00:00.000Z' }),
+      createPlayerGameState({ id: 'z3', gameId: 'g', playerId: 'zu3', turnOrder: 3, currentBalance: 528 }),
+    ],
+    properties,
+    // z1 leads at 369 holding only 283 — the settlement cannot be paid.
+    pendingAuction: {
+      propertyId: 'zs-t2', basePrice: 349, currentBid: 369,
+      highestBidderId: 'z1', activeBidders: ['z1', 'z3'], initiatorId: 'z0',
+      bankId: 'bank', bids: [{ playerId: 'z1', amount: 369 }],
+    },
+  });
+
+  const result = transitionTurn(
+    gs,
+    board,
+    { type: 'FORFEIT_MATCH', payload: { playerId: 'z3' }, clientActionId: 'zs-1' },
+    '2026-09-04T03:00:00.000Z'
+  );
+
+  assert.equal(result.gameState.status, 'finished');
+  assert.equal(result.gameState.phase, null);
+  for (const p of result.gameState.players.filter((x) => !x.isBank)) {
+    assert.ok(Number.isInteger(p.finalRank), 'player ' + p.id + ' must carry a finalRank');
+  }
+});

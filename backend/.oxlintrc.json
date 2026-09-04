@@ -1,0 +1,26 @@
+{
+  "plugins": [
+    "oxc",
+    "eslint",
+    "import"
+  ],
+  "env": {
+    "node": true,
+    "es2024": true
+  },
+  "rules": {
+    "no-undef": "error",
+    "import/named": "error",
+    "no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_"
+      }
+    ]
+  },
+  "ignorePatterns": [
+    "node_modules",
+    "scripts",
+    "_*.mjs"
+  ]
+}

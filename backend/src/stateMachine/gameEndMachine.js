@@ -47,7 +47,29 @@ export const FINAL_PHASE_DURATION_ROUNDS = 5; // long enough for a real "final s
  */
 export function checkElimination(gameState) {
   const active = gameState.players.filter((p) => !p.isBank && !p.bankrupt);
-  return active.length === 1 ? { isOver: true, winnerId: active[0].id } : { isOver: false, winnerId: null };
+  // `<= 1`, not `=== 1` (2026-09-04, found by fuzzing): ZERO survivors is
+  // genuinely reachable, because one resolution step can bankrupt two players
+  // at once. The case the fuzz hit: a live auction whose leader had since been
+  // drained below their own winning bid, settled during the current player's
+  // FORFEIT_MATCH — the forfeiter goes under by forfeiting, the leader by a
+  // bid they can no longer cover. With `=== 1` that reported "not over", so
+  // resolveForfeit fell through to advanceTurn(), whose next-player scan found
+  // nobody and threw `TypeError: Cannot read properties of undefined (reading
+  // 'turnOrder')`. errorCodeFor maps a bare TypeError to MALFORMED_PAYLOAD, so
+  // the player who pressed "Đầu hàng" was told their payload was malformed —
+  // and the room was unrecoverable from there, since every retry failed the
+  // same way.
+  //
+  // A winnerless end needs no new plumbing: rankPlayers() already orders
+  // bankrupt players by `bankruptAt` descending ("most recently bankrupted =
+  // higher", GAME_DESIGN_SPEC.md §22), so the last player to go under takes
+  // rank 1, and gameRepository.saveMatchResult already writes a null
+  // `winner_game_player_id` for exactly the outcome its own comment called
+  // "not reachable today".
+  if (active.length > 1) {
+    return { isOver: false, winnerId: null };
+  }
+  return { isOver: true, winnerId: active[0]?.id ?? null };
 }
 
 /**

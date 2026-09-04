@@ -7,7 +7,11 @@
     "dev": "node --watch --env-file=.env src/server.js",
     "start": "node src/server.js",
     "test": "node --test",
-    "e2e:smoke": "node --env-file=.env scripts/e2e-smoke.js"
+    "e2e:smoke": "node --env-file=.env scripts/e2e-smoke.js",
+    "lint": "oxlint --config .oxlintrc.json src",
+    "audit:fuzz": "node scripts/fuzz-engine.mjs",
+    "audit:arity": "node scripts/audit-arity.mjs",
+    "audit:lobby": "node scripts/audit-lobby-roundtrips.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
@@ -15,6 +19,7 @@
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
-    "socket.io-client": "^4.8.3"
+    "socket.io-client": "^4.8.3",
+    "oxlint": "^1.78.0"
   }
 }

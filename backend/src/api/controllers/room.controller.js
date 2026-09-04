@@ -89,8 +89,28 @@ function errorResponse(res, status, code, message) {
  * duplicating it into the socket payload would just be a second copy that
  * could drift, for no real benefit over "the push tells you to refetch".
  */
-function notifyRoomUpdated(req, roomId, roomStatus) {
-  req.app.get('io')?.to(roomId).emit('S2C_ROOM_UPDATED', { roomId, roomStatus });
+function notifyRoomUpdated(req, record) {
+  req.app.get('io')?.to(record.id).emit('S2C_ROOM_UPDATED', {
+    roomId: record.id,
+    roomStatus: record.status,
+    // The roster RIDES ALONG as of 2026-09-04. It used to be deliberately
+    // excluded (see the paragraph above), on the reasoning that "the push
+    // tells you to refetch" was free and a second copy could drift.
+    // Measurement retired the first half of that: the refetch is
+    // GET /rooms/:id = three sequential Supabase round trips, and the
+    // deployed backend sits in Render's gcp-us-west1 (Oregon — confirmed
+    // from DNS) while Supabase answers from Asia and the players are in
+    // Vietnam. So every other player waited roughly a full second after a
+    // teammate's ready-toggle, all of it spent re-fetching data the server
+    // already had in hand at the moment it sent this push.
+    //
+    // The drift concern is answered rather than accepted: this is
+    // toRoomResponse(record) — the exact function, on the exact record, that
+    // the REST endpoints return. One producer, one shape, delivered over two
+    // transports, not two copies. roomId/roomStatus stay at the top level, so
+    // a client written against the old payload keeps working unchanged.
+    room: toRoomResponse(record),
+  });
 }
 
 function toRoomResponse(record) {
@@ -301,9 +321,9 @@ export async function joinRoom(req, res, next) {
           zodiac: null,
         },
       ],
-    })
+    }, record)
 
-    notifyRoomUpdated(req, updated.id, updated.status)
+    notifyRoomUpdated(req, updated)
     return res.status(200).json(toRoomResponse(updated))
   } catch (err) {
     next(err)
@@ -362,8 +382,8 @@ export async function setReady(req, res, next) {
       nextRecord = transitionRoom(nextRecord, { type: 'PLAYER_UNREADY' })
     }
 
-    const updated = await roomRepository.updateRoom(supabase, record.id, nextRecord)
-    notifyRoomUpdated(req, updated.id, updated.status)
+    const updated = await roomRepository.updateRoom(supabase, record.id, nextRecord, record)
+    notifyRoomUpdated(req, updated)
     return res.status(200).json(toRoomResponse(updated))
   } catch (err) {
     next(err)
@@ -405,8 +425,8 @@ export async function setZodiac(req, res, next) {
     // here. playerColor() (frontend, cycles by turnOrder) is what makes two
     // players who picked the same animal visually distinct, by design.
     const players = record.players.map((p) => (p.playerId === req.user.id ? { ...p, zodiac } : p))
-    const updated = await roomRepository.updateRoom(supabase, record.id, { ...record, players })
-    notifyRoomUpdated(req, updated.id, updated.status)
+    const updated = await roomRepository.updateRoom(supabase, record.id, { ...record, players }, record)
+    notifyRoomUpdated(req, updated)
     return res.status(200).json(toRoomResponse(updated))
   } catch (err) {
     next(err)
@@ -479,9 +499,9 @@ export async function startGame(req, res, next) {
     // every action anyone takes is rejected, with no way back. Persisting
     // first means a failure here simply aborts the start — nothing is left
     // half-created, and the host can just press Start again.
-    await roomRepository.updateRoom(supabase, record.id, nextRecord)
+    await roomRepository.updateRoom(supabase, record.id, nextRecord, record)
     gameRepository.setGameState(record.id, gameState)
-    notifyRoomUpdated(req, nextRecord.id, nextRecord.status)
+    notifyRoomUpdated(req, nextRecord)
 
     return res.status(201).json({
       gameId: gameState.id,
@@ -534,8 +554,8 @@ export async function leaveRoom(req, res, next) {
       : remainingPlayers
     const hostId = wasHost && remainingPlayers.length > 0 ? players[0].playerId : record.hostId
 
-    await roomRepository.updateRoom(supabase, record.id, { ...record, players, hostId })
-    notifyRoomUpdated(req, record.id, record.status)
+    const afterLeave = await roomRepository.updateRoom(supabase, record.id, { ...record, players, hostId }, record)
+    notifyRoomUpdated(req, afterLeave ?? { ...record, players, hostId })
     return res.status(200).json({ success: true })
   } catch (err) {
     next(err)
@@ -585,8 +605,8 @@ export async function kickPlayer(req, res, next) {
     }
 
     const players = record.players.filter((p) => p.playerId !== targetPlayerId)
-    await roomRepository.updateRoom(supabase, record.id, { ...record, players })
-    notifyRoomUpdated(req, record.id, record.status)
+    const afterKick = await roomRepository.updateRoom(supabase, record.id, { ...record, players }, record)
+    notifyRoomUpdated(req, afterKick ?? { ...record, players })
     return res.status(200).json({ success: true })
   } catch (err) {
     next(err)

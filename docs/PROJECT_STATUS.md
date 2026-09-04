@@ -2085,6 +2085,99 @@ Neither client nor server specified `transports`, so Socket.IO used its default 
 ### Verification
 Backend **728 pass / 0 fail**, frontend lint + build clean. The real-world effect needs a redeploy to confirm, but the per-action Supabase round trips are gone from the hot path and measurable in the code.
 
+## Backend + frontend bug sweep — 2026-09-04
+
+Requested as "kiểm tra kỹ còn lỗi hay bug gì trong backend và frontend không". Run as mechanical audits rather than reading for bugs: a field-name audit against the real factories, a call-site arity audit, socket/error-code contract diffs in both directions, and a ~1,000,000-step engine fuzz over both rulesets checking three invariants after every step (closed economy, the turn-timer default must be buildable for the live phase, the phase must be a real phase).
+
+**Six real backend defects. All fixed, each pinned by a regression test.**
+
+> This whole section was overwritten later the same day by a concurrent session and has been re-applied — see "Lobby latency" below for the collision writeup. Every fix and test named here has been verified present against the current files.
+
+### The root cause behind most of them: `backend/` had no linter
+
+The frontend got `no-undef` on 2026-09-03 after `currentAuctionFee` shipped a live crash. The backend had **no lint config and no lint script at all** — and was carrying the identical bug. Added `backend/.oxlintrc.json` (`no-undef`, `import/named`, `no-unused-vars`) plus `npm run lint`, with `oxlint` as a real devDependency. Verified both ways: it flags a deliberately injected undeclared identifier, and the codebase is clean under it.
+
+1. **`MOVEMENT_CARDS` used without being imported** — `socketServer.js`'s `serverGeneratedFields()` read it; nothing imported it. Every `PLAY_MOVEMENT_CARD` threw `ReferenceError`, from the object literal that builds `action`, which sits **outside** `handleGameAction`'s try/catch — so the player got no `S2C_ACTION_REJECTED` at all and it escaped as an unhandled promise rejection (no handler is installed anywhere, and Node 24's default for that is to terminate the process).
+
+2. **`timers.js` resolved the current player by a field GameState has never had** — `currentTurnPlayerId`. The factory exposes `currentTurnIndex`; players carry `turnOrder`. The lookup always returned `undefined`, so `buildDefaultAction`'s `PLAYING_CARD` branch threw `TypeError` *from inside its own error message* on every timeout, even with a full hand — and that throw escaped `handleTurnTimeout`'s try/catch, so the room lost its only timer and froze permanently. `timers.test.js` passed because its fixtures hand-wrote the invented field. Fixtures rewritten onto the real shape, plus a test that drives a factory-built state through a real `START_TURN`. (Also independently fixed by the concurrent session.) A field-name audit of every `gameState.*`/`player.*`/`property.*` access against the real factories found this and **nothing else**.
+
+3. **`checkElimination` tested `=== 1` survivor, so zero read as "not over"** — found by fuzzing. One step can bankrupt two players at once: a live auction whose leader has since been drained below their own winning bid, settled during the current player's `FORFEIT_MATCH`. `resolveForfeit` then fell through to `advanceTurn()`, whose next-player scan found nobody: `TypeError: … reading 'turnOrder'`, reported to the player as `MALFORMED_PAYLOAD`, and the room unrecoverable because every retry failed identically. Now `<= 1`; a winnerless end needs no new plumbing (`rankPlayers` already orders bankrupt players by `bankruptAt` desc, and `saveMatchResult` already writes a null winner). `advanceTurn` also got a named guard.
+
+4. **`resolveLanding` called with 4 arguments instead of 5** — `handlePlayMovementCard` passed `now` into the `diceTotal` slot, so `now` itself arrived `undefined`. Landing on a utility threw `TypeError: calculateRent: diceRoll is required for utility rent`, and every timestamp that landing wrote was undefined. **The same mistake this file already documents for `settleAuction`.** Fixed with `UTILITY_DICE_FALLBACK` (7) — the convention `moveByStepsAndResolve` already established for card-driven landings — and the real `now`. A whole-backend arity audit (`npm run audit:arity`) found no other real mismatch.
+
+5. **`'pass_go'` is not a listed transaction type** — the movement-card path credited the GO salary under a name absent from `TRANSACTION_TYPES`, so any movement card that lapped the board threw. Identical to what that constant's own comment already records for `movement_card_cost`.
+
+6. **An unaffordable movement card drove the balance negative** — nothing checked before charging, so $43 playing `SPRINT_12` ($100) hit `applyTransaction`'s `RangeError` and reported `INTERNAL_ERROR`. Now refused up front with `InvalidMovementCardError` / `INSUFFICIENT_BALANCE`.
+
+**Also fixed:** `FLASH_AUCTION_ACTIVE`'s per-bid extension depended on two unrelated constants happening to both be 5 — `TimerManager.start()` now takes an explicit duration, so the countdown players see is by construction the moment the timer fires.
+
+### Checked, clean
+
+Socket event contract (6 `S2C_*`, 3 `C2S_*`, no drift either direction) · error-code coverage (every code the backend can send has a frontend explanation) · closed-economy invariant (0 violations across ~1,000,000 fuzzed steps) · mirrored constants (`JAIL_FINE`, `PASS_GO_SALARY`, upgrade levels, final-phase rounds, auction fee formula — all byte-identical) · frontend timer/listener cleanup · snapshot round-trip (whole GameState as JSONB, no field can be lost) · the read-then-write race in `handleGameAction` (safe on the hot path; the only window is a genuine cold miss right after a restart — noted, not fixed).
+
+The remaining fuzz findings are one defensive guard — `handleBuildHouse` refusing a non-house-eligible tile — unreachable from the real client (`buildRules.js:77` gates on tile type) and cleanly mapped to `MALFORMED_PAYLOAD`.
+
+### ⚠️ ASYMMETRIC ("Đột Phá") — status changed the same day
+
+At the time of this sweep the mode was selectable from the main screen but **unplayable**: five of the six defects above lived on its path (unreachable behind #1), and it had no frontend at all. A concurrent session has since built that frontend — `MovementHandControls.jsx`, `movementCards.js`, and `PLACE_TRAP` wired through `BoardTile`/`GameBoard`/`GameControls`/`GameView` — plus a Draft phase and a trap engine on the backend. The backend path is now fuzzed clean at ~500k ASYMMETRIC steps. **Not yet verified by a human playthrough.**
+
+### New durable tooling
+
+- `npm run lint` — oxlint over `backend/src`, `no-undef` as an error.
+- `npm run audit:fuzz` — the engine fuzzer (`SEEDS=`/`STEPS=` env-tunable). Found 4 of the 6 defects.
+- `npm run audit:arity` — call-site vs. declared-parameter audit, for the mistake that has bitten this codebase twice.
+- `npm run audit:lobby` — Supabase round trips per lobby REST action (added with the latency work below).
+
+
+## Lobby latency — measured and fixed, 2026-09-04
+
+Reported as "tạo phòng và bạn bè sẵn sàng các thứ vẫn rất delay". That is the lobby REST path, not the in-game socket hot path the 2026-09-03 pass optimised — it had never been looked at.
+
+### What the measurements actually say (run from the user's own machine)
+
+- **The deployed backend is still in Oregon.** `nslookup cobactyphu-backend.onrender.com` resolves through `gcp-us-west1-1.origin.onrender.com`. The `region: singapore` added to `render.yaml` on 2026-09-03 **never took effect** — exactly as that file's own comment warned: Render cannot move an existing service, only a freshly created one. **This is still the single biggest lever and it needs a human: delete and recreate the service from the Blueprint.**
+- **A no-op request costs ~450ms.** `GET /api/v1/health` does zero database work; median TTFB over 8 samples was 0.45s (best 0.39s, worst 0.93s). TCP connect is ~70ms because Cloudflare terminates at its **Hong Kong** edge (`CF-RAY: …-HKG`) — the rest is the Pacific crossing from HKG to Oregon plus free-tier shared CPU.
+- **Supabase answers from Asia**, roughly twice as fast as Render through the same edge (median TTFB 0.23s vs 0.45s). So the backend and its database are on **opposite sides of the Pacific**: every query the server makes is a ~180ms round trip.
+- **Free tier still spins down after ~15 min idle** (~50s cold start). When friends gather and someone creates a room, the *first* action very likely eats that cold start on its own.
+
+### The code half: a "Sẵn Sàng" click cost 13 sequential round trips
+
+Counted, not estimated — `npm run audit:lobby` walks the real controllers against a counting fake and reports the round trips per action. At a 4-player table `setReady` was:
+
+- `getRoomById` in the controller → rooms, room_players, profiles **(3)**
+- `updateRoom` re-fetching *the same record the caller had just fetched* → rooms, room_players, profiles **(3, entirely redundant)**
+- the `rooms` status update **(1)**
+- a `room_players` UPDATE **per player, in a sequential loop** — three of which rewrote values that had not changed **(4)**
+- `fetchPlayers` again, to return the roster **(2)**
+
+**13 round trips × ~180ms ≈ 2.3s of pure database wait**, before adding the ~0.45s the client itself spends reaching Oregon. Then every *other* player's client answered the resulting push with its own `GET /rooms/:id` — 3 more round trips — so a teammate's ready-toggle took about **a further second** to appear on anyone else's screen.
+
+### Three changes
+
+1. **`updateRoom` takes the record the caller already has** (`knownExisting`). All six call sites in `room.controller.js` had just fetched it for their own membership/status checks. Removes 3 round trips.
+2. **One `upsert` for the whole roster** instead of an update-or-insert per player. `room_players`' primary key is `(room_id, player_id)`, so a single conflict-target upsert expresses exactly what the loop did by hand. Removes N−1. The rebuilt roster is returned from what was just written plus the display fields the caller already held, instead of a further two-query re-read — pinned by a test asserting it is byte-identical to what a fresh `GET /rooms/:id` returns. `joined_at` is deliberately omitted for existing rows: rewriting it on every toggle would reshuffle the lobby, since `fetchPlayers` sorts by exactly that column.
+3. **The push carries the roster.** `notifyRoomUpdated` now emits `toRoomResponse(record)` — the exact function, on the exact record, the REST endpoints return, so there is one producer and one shape, not the "second copy that could drift" its old comment worried about. Clients render straight from it; `Lobby.jsx`'s 3s poll drops to 12s and becomes a pure dropped-socket safety net. Being absent from the pushed roster is now also the fastest "you were kicked" signal, replacing a 404 that could only fire on the next fetch.
+
+**Result: `setReady` 13 → 5 round trips (~2.3s → ~0.9s of database wait), and other players see it with no round trip at all.** A 4-player lobby also stops generating ~4 background database queries per second.
+
+### Still on the user
+
+Recreating the Render service in Singapore is worth more than all of the above combined: it would cut the ~450ms floor on every request and turn each remaining database round trip from ~180ms into single digits. `plan: starter` ($7/mo) additionally removes the 15-minute spindown and the shared CPU.
+
+### ⚠️ Concurrent-session collision, 2026-09-04
+
+A second session was editing this repo at the same time and **overwrote a full set of fixes from earlier the same day** — `checkElimination`'s zero-survivor fix, the `pass_go` transaction-type fix, `resolveLanding`'s arity fix, the movement-card affordability check, the `advanceTurn` guard, the FLASH_AUCTION timer-duration fix, `package.json`'s `lint`/`audit:*` scripts, and **every regression test** that pinned them. All six bugs were live again and the suite was green, because the tests that would have caught them were gone too.
+
+All of it has been re-applied on top of that session's current files (which also carry real new work — the ASYMMETRIC Draft/Trap/movement-hand UI) and re-pinned with tests. Two practical lessons:
+
+- **Do not run two sessions against this repo at once.** There is no git here, so there is no merge and no recovery — the second writer simply wins.
+- The other session's files are **CRLF**; earlier ones were LF. Any scripted edit must normalise line endings or its search strings silently fail to match.
+
+While re-applying, one defect in the *other* session's new code was found and fixed: `InvalidDraftActionError` and `InvalidTrapActionError` both carry a `.reason` but neither was added to `errorCodeFor`'s passthrough list, so every Draft/Trap rejection reached players as a bare `INTERNAL_ERROR`. That list has now been wrong three separate times, so it is pinned by a test that walks every class.
+
+**820 backend pass / 0 fail. Backend lint 0 errors. Frontend lint 0 errors, build clean. ~310,000 fuzzed engine steps: 0 economy-invariant violations, 0 timeout-default failures, 0 invalid phases.**
+
+
 ## Known gaps flagged in `SECURITY_DESIGN.md` (not yet closed)
 
 1. ~~`build_house`/`sell_house`/`mortgage`/`unmortgage`/`propose_trade`/`respond_trade` have no Socket.IO event handlers yet~~ — **fully closed 2026-08-18** (all six), see "Backend slice — property economy" and "Backend slice — Trade System" above.

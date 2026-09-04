@@ -164,3 +164,38 @@ test('rankPlayers: among bankrupt players, most-recently-bankrupted ranks better
   const ranked = rankPlayers(state({ players: [early, late] }), []);
   assert.deepEqual(ranked.map((r) => r.playerId), ['gp2', 'gp1']); // gp2 bankrupted later -> better placement
 });
+
+// --- Zero-survivor elimination (2026-09-04, found by fuzzing) ---
+//
+// One resolution step can bankrupt two players at once, so "nobody left" is
+// genuinely reachable — the fuzz hit it via a live auction whose leader had
+// been drained below their own winning bid, settled during the current
+// player's FORFEIT_MATCH. checkElimination used to test `=== 1` and so
+// reported "not over" for zero, which sent resolveForfeit into advanceTurn()
+// with no player to advance to: `TypeError: Cannot read properties of
+// undefined (reading 'turnOrder')`, surfaced to the player as
+// MALFORMED_PAYLOAD, and the room unrecoverable from there.
+test('checkElimination: zero non-bankrupt players ends the match (winnerless), never "not over"', () => {
+  const bank = player({ id: 'gp-bank', isBank: true, playerId: null });
+  const a = player({ id: 'gp1', turnOrder: 0, bankrupt: true, bankruptAt: '2026-09-04T01:00:00.000Z' });
+  const b = player({ id: 'gp2', turnOrder: 1, bankrupt: true, bankruptAt: '2026-09-04T02:00:00.000Z' });
+
+  const result = checkElimination(state({ players: [bank, a, b] }));
+  assert.equal(result.isOver, true);
+  assert.equal(result.winnerId, null); // match_results.winner_game_player_id is nullable for exactly this
+});
+
+test('checkElimination: one survivor still reports that survivor as the winner (unchanged)', () => {
+  const bank = player({ id: 'gp-bank', isBank: true, playerId: null });
+  const a = player({ id: 'gp1', turnOrder: 0 });
+  const b = player({ id: 'gp2', turnOrder: 1, bankrupt: true, bankruptAt: '2026-09-04T02:00:00.000Z' });
+
+  assert.deepEqual(checkElimination(state({ players: [bank, a, b] })), { isOver: true, winnerId: 'gp1' });
+});
+
+test('a winnerless elimination still produces a full ranking, most-recently-bankrupted first', () => {
+  const early = player({ id: 'gp1', turnOrder: 0, bankrupt: true, bankruptAt: '2026-09-04T01:00:00.000Z' });
+  const late = player({ id: 'gp2', turnOrder: 1, bankrupt: true, bankruptAt: '2026-09-04T02:00:00.000Z' });
+  const ranked = rankPlayers(state({ players: [early, late] }), []);
+  assert.deepEqual(ranked.map((r) => r.playerId), ['gp2', 'gp1']);
+});

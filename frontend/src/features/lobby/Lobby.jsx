@@ -25,7 +25,15 @@ import styles from './Lobby.module.css'
 // being replaced outright — same "fast path plus an existing fallback, not
 // instead of it" posture GameControls.jsx's own handleStart() local-patch
 // already uses.
-const POLL_INTERVAL_MS = 3000
+// 12s, was 3s (2026-09-04). At 3s every client in the lobby fired a
+// `GET /rooms/:id` — three sequential Supabase queries each — twenty times a
+// minute, forever, against a free-tier Render instance on a shared CPU. A
+// 4-player lobby generated roughly four database queries per second of pure
+// background noise, which slowed down the actions people were actually
+// waiting on. Now that S2C_ROOM_UPDATED carries the roster itself, this poll
+// is only a safety net for a socket that dropped without reconnecting, so it
+// does not need to be fast.
+const POLL_INTERVAL_MS = 12000
 const MIN_PLAYERS = 2 // GAME_DESIGN_SPEC.md §0, CONFIRMED — duplicated here, not imported; no shared package crosses the frontend/backend boundary in this project
 
 export default function Lobby() {
@@ -35,6 +43,7 @@ export default function Lobby() {
   const setRoomState = useGameStore((s) => s.setRoomState)
   const setRoomExitNotice = useGameStore((s) => s.setRoomExitNotice)
   const roomUpdatedAt = useGameStore((s) => s.roomUpdatedAt)
+  const pushedRoom = useGameStore((s) => s.pushedRoom)
 
   const [room, setRoom] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -80,15 +89,42 @@ export default function Lobby() {
     }
   }, [roomId, session.access_token, setRoomExitNotice, setRoomState])
 
-  // roomUpdatedAt in the dependency array (not its own separate effect) is
-  // deliberate: a push arriving mid-poll-interval both triggers an immediate
-  // refresh() *and* restarts the interval's own countdown, avoiding a
-  // redundant poll landing right on the heels of the push-triggered one.
+  // One REST read on mount, then a slow poll purely as a safety net for a
+  // dropped socket. The push below is the real path now.
   useEffect(() => {
     refresh()
     const interval = setInterval(refresh, POLL_INTERVAL_MS)
     return () => clearInterval(interval)
-  }, [refresh, roomUpdatedAt])
+  }, [refresh])
+
+  // The push carries the whole roster as of 2026-09-04, so this renders
+  // straight from it instead of answering it with a REST round trip. That
+  // round trip was the actual reason another player's "Sẵn Sàng" took about a
+  // second to appear: GET /rooms/:id is three sequential Supabase queries, and
+  // the deployed backend runs in Render's Oregon region while the database
+  // answers from Asia and the players are in Vietnam — so the client paid a
+  // Pacific crossing to re-fetch data the server had already put on the wire.
+  // An older server that sends no `room` still falls through to refresh(), so
+  // this degrades rather than breaks.
+  useEffect(() => {
+    if (!roomUpdatedAt || !roomId) return
+    if (!pushedRoom || pushedRoom.roomId !== roomId) {
+      refresh()
+      return
+    }
+    // Being absent from the pushed roster is now the fastest and most direct
+    // "you are no longer in this room" signal there is — it arrives on the
+    // same push as the removal itself. The 404-on-refetch rule this screen
+    // relied on before still exists and still works (the poll above will hit
+    // it), but it could only fire on the next fetch, and this path
+    // deliberately stops fetching.
+    if (!pushedRoom.players?.some((p) => p.playerId === user.id)) {
+      setRoomExitNotice('Bạn không còn ở trong phòng này (có thể đã bị đuổi, hoặc phòng không còn tồn tại).')
+      setRoomState(null)
+      return
+    }
+    setRoom(pushedRoom)
+  }, [roomUpdatedAt, pushedRoom, roomId, user.id, refresh, setRoomExitNotice, setRoomState])
 
   const players = room?.players ?? []
   const me = players.find((p) => p.playerId === user.id)

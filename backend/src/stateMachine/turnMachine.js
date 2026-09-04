@@ -294,6 +294,20 @@ export class InvalidForfeitError extends Error {
   }
 }
 
+// PLAY_MOVEMENT_CARD's own business-rule rejections (ASYMMETRIC, 2026-09-04)
+// — same standing as the classes above, and distinct for the same stated
+// reason: InvalidTurnActionError takes (phase, actionType), not a reason, and
+// errorCodeFor() maps it unconditionally to PHASE_MISMATCH, so "you can't
+// afford that card" would have reached the player as "wrong phase".
+// Reason: INSUFFICIENT_BALANCE.
+export class InvalidMovementCardError extends Error {
+  constructor(reason, message) {
+    super(message);
+    this.name = 'InvalidMovementCardError';
+    this.reason = reason;
+  }
+}
+
 // Which action types are legal from which phase — the guard for guideline
 // #5 ("invalid phase/action combinations throw an error"). System-only
 // phases this machine always cascades straight through (MOVING, LANDING,
@@ -1868,6 +1882,21 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
     throw new Error(`Thẻ di chuyển không tồn tại: ${cardId}`);
   }
 
+  // Playing a costed card is a VOLUNTARY purchase, so it has to be refused up
+  // front — applyTransaction's own RangeError message spells the rule out:
+  // "an unaffordable voluntary purchase must be rejected before reaching this
+  // function". Until 2026-09-04 nothing checked, so a player holding $43 who
+  // played SPRINT_12 ($100) drove their balance to -$57 and got a raw
+  // RangeError, which errorCodeFor() reports as INTERNAL_ERROR. Found by
+  // fuzzing. Deliberately NOT a debt/liquidation: a free card is always
+  // available, so there is no forced obligation to settle.
+  if (cardDef.cost > 0 && player.currentBalance < cardDef.cost) {
+    throw new InvalidMovementCardError(
+      'INSUFFICIENT_BALANCE',
+      `handlePlayMovementCard: balance ${player.currentBalance} is less than card '${cardId}' cost ${cardDef.cost}`
+    );
+  }
+
   // Lọc thẻ khỏi tay
   const newHand = [...player.movementHand];
   newHand.splice(newHand.indexOf(cardId), 1);
@@ -1977,13 +2006,35 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
       fromPlayerId: bank.id,
       toPlayerId: player.id,
       amount: PASS_GO_SALARY,
-      transactionType: 'pass_go',
+      // 'pass_go_salary', not 'pass_go' (fixed 2026-09-04) — the latter is not
+      // in applyTransaction's TRANSACTION_TYPES, so any movement card that
+      // crossed GO threw `TypeError: unknown transactionType 'pass_go'`. The
+      // other two pass-GO sites in this file have always used the listed name;
+      // only this one drifted. Exactly the failure TRANSACTION_TYPES' own
+      // comment already describes for 'movement_card_cost' — same code path,
+      // same cause, found the same way.
+      transactionType: 'pass_go_salary',
     });
     stateAfterMove = stateWithGo;
     transactions.push(goTx);
   }
 
-  const landing = resolveLanding(stateAfterMove, boardTiles, finalPlayer.id, now);
+  // Arity bug, fixed 2026-09-04. resolveLanding's signature is
+  // (gameState, boardTiles, playerId, diceTotal, now) — this call passed four
+  // arguments, so `now` landed in the `diceTotal` slot and `now` itself
+  // arrived undefined. Two live consequences: landing on a utility threw
+  // `TypeError: calculateRent: diceRoll is required for utility rent` (an ISO
+  // string is not a number), and every timestamp this landing wrote —
+  // settleDebt's bankruptAt/endedAt included — was undefined. The same mistake
+  // this file already documents for settleAuction ("TWO of its four callers
+  // passed only two arguments — so the auction object landed in the boardTiles
+  // slot").
+  //
+  // UTILITY_DICE_FALLBACK (7) is not a new rule: moveByStepsAndResolve already
+  // established it as this codebase's answer to "the destination is a utility
+  // but the player got here without rolling", which is exactly a movement
+  // card's situation.
+  const landing = resolveLanding(stateAfterMove, boardTiles, finalPlayer.id, UTILITY_DICE_FALLBACK, now);
 
   // ── Display-only movement facts (2026-09-04, frontend "Mặt trận 3") ─────
   // Everything below is for the client's animation layer and is read back by
@@ -2243,6 +2294,19 @@ function advanceTurn(gameState, boardTiles, now) {
       nextPlayer = candidate;
       break;
     }
+  }
+
+  // Defensive (2026-09-04): every caller is supposed to have run
+  // checkElimination first, which now ends the match at `<= 1` survivor
+  // rather than exactly 1 — so a scan that finds nobody means that ordering
+  // was broken somewhere upstream. Without this the next line read
+  // `.turnOrder` off undefined, and a bare TypeError maps to
+  // MALFORMED_PAYLOAD at the socket layer: the player saw a payload complaint
+  // for a turn-advance bug. Named explicitly instead.
+  if (!nextPlayer) {
+    throw new Error(
+      `advanceTurn: no non-bankrupt player left to advance to (currentTurnIndex ${state.currentTurnIndex}) — the caller should have ended the match via checkElimination first`
+    );
   }
 
   const wrapped = nextPlayer.turnOrder <= state.currentTurnIndex;
