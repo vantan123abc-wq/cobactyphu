@@ -459,12 +459,21 @@ export default function GameBoard() {
   // to leak a position it was never told.
   const visibleTrapByPosition = useMemo(() => {
     const map = new Map()
+    // Gated on the ruleset as well as on the data. In practice activeTraps is
+    // always empty in CLASSIC (nothing writes it there), so this changes
+    // nothing today — but it makes the mode boundary explicit rather than
+    // relying on an invariant held somewhere else, which is the same class of
+    // leak that let a stale fixture put a "bẫy ẩn" badge on a Classic board.
+    if (ruleset !== 'ASYMMETRIC') return map
     for (const trap of activeTraps) {
       if (typeof trap.tileIndex === 'number') map.set(trap.tileIndex, trap)
     }
     return map
-  }, [activeTraps])
-  const hiddenTrapCount = activeTraps.length - visibleTrapByPosition.size
+  }, [activeTraps, ruleset])
+  // Same ruleset gate as visibleTrapByPosition above, and it MUST be gated
+  // separately: this is a subtraction, so gating only the map made a Classic
+  // board report every trap as hidden rather than none at all.
+  const hiddenTrapCount = ruleset === 'ASYMMETRIC' ? activeTraps.length - visibleTrapByPosition.size : 0
 
   const trapBooms = useTrapBooms(lastTrapHits, lastTrapHitSeq)
 
