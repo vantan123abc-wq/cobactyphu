@@ -124,20 +124,25 @@ export function synergyByTileId(properties, boardTiles) {
 // drifted, and a panel that promises an effect the code never applies is
 // worse than no panel. Verified against engine/synergyEngine.js's own
 // passThroughEffect()/landingEffect() switch arms, arm by arm:
-//   - CONTROL   pass-through STEP_LOSS 1        · landing: nothing extra
+//   - CONTROL   pass-through STEP_LOSS 1        · landing: +50% rent
 //   - ECONOMY   pass-through CARD_REROLL        · landing: owner draws 2
 //   - DENIAL    pass-through REVEAL_NEXT_CARD   · landing: reveals hand 2 rounds
 //   - EXECUTION pass-through TOLL 75×level      · landing: nothing extra
 //   - MOBILITY  pass-through NUDGE 1            · landing: TELEPORT, tier 2 only
-//   - INFRA     nothing at all — see INFRA's own entry below.
-// The spec additionally promises CONTROL "Rent ×1.5" and EXECUTION a
-// confiscation on landing; neither exists in landingEffect(), so neither is
-// claimed here.
+//   - INFRA     pass-through TOLL $25, tier 2   · landing: +10%/+25% rent, ALL tiles
+//
+// CORRECTION 2026-09-04: CONTROL's landing effect was previously listed here
+// as "nothing extra" because only landingEffect() had been checked. Rent
+// riders do not live there — engine/calculateRentMiddleware.js is the second
+// place a landing effect can be implemented, and CONTROL's +50% has been in
+// it all along. Two files decide what stopping on a tile costs; a claim about
+// landing effects has to read both. EXECUTION's spec'd "Tịch thu" really is
+// absent from both, so it stays unclaimed.
 
 const ARCHETYPE_EFFECTS = {
   CONTROL: {
     passThrough: 'Đối thủ đi ngang qua bị trừ 1 bước',
-    landing: null,
+    landing: 'Đối thủ dừng lại: trả thêm 50% tiền thuê',
   },
   ECONOMY: {
     passThrough: 'Đối thủ đi ngang qua phải bỏ 1 lá bài và rút lá khác',
@@ -157,13 +162,14 @@ const ARCHETYPE_EFFECTS = {
     landingTier: 2, // gated behind tier 2 in landingEffect(); the others are not tier-gated
   },
   INFRA: {
-    // Not an oversight in this file: engine/synergyEngine.js has no INFRA arm
-    // in either passThroughEffect() or landingEffect(), so owning utilities
-    // currently grants nothing. Stated plainly rather than quietly omitted —
-    // a player who buys both utilities expecting a synergy deserves to know.
-    passThrough: null,
-    landing: null,
-    unimplemented: true,
+    // The SUPPORT archetype (wired 2026-09-04). Its rent line is the only one
+    // on this list that applies to tiles of EVERY archetype, not just its
+    // own — worth saying explicitly, because "+25%" reads as small until you
+    // notice it is +25% on the owner's entire portfolio.
+    passThrough: 'Đối thủ đi ngang qua trả $25 phí hạ tầng',
+    passThroughTier: 2,
+    landing: 'Mọi tiền thuê bạn thu được +10% — trên TẤT CẢ các ô, kể cả ô hệ khác',
+    landingMaxNote: 'đủ 2 công ty: +25%',
   },
 }
 

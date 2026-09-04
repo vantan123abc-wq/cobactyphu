@@ -56,6 +56,10 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  /* flex:1 + min-height:0 is what actually lets this scroll instead of
+     growing: without both, the ul reports its full content height to the
+     flex parent and overflow-y never has anything to clip. */
+  flex: 1;
   overflow-y: auto;
   min-height: 0;
 }
@@ -220,4 +224,63 @@
   .list {
     overflow-y: visible;
   }
+}
+
+/* Collapsible header, byte-for-byte the same affordance MyPortfolio /
+   CardInventory / Ledger use in this rail — a player should not have to learn
+   a second interaction for the fourth panel in a column. */
+.headerBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--et-card-bg);
+  border: 1px solid var(--et-border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  flex: 0 0 auto;
+}
+
+.headerBtn:hover {
+  background: var(--et-panel-bg);
+  border-color: var(--et-gold);
+}
+
+/* How many Thế Lực are actually ACTIVE — the one number worth keeping visible
+   when the panel is collapsed, same role MyPortfolio's holding count plays. */
+.count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--et-gold-dim);
+  color: var(--et-gold);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.toggleIcon {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--et-text-muted);
+}
+
+/* THE layout fix. `.right` is a fixed-height flex column with overflow:hidden,
+   so a panel that sizes itself to its content takes whatever it wants and
+   shoves its siblings out of the rail — which is exactly what six
+   always-expanded archetype rows did (a real screenshot showed this panel
+   overlapping the ones below it, with nested scrollbars). Claiming a share
+   with `flex: 1` and scrolling INSIDE it is how Ledger.module.css already
+   solves the identical problem for the same rail; two expanded panels then
+   simply split the space instead of fighting for it. */
+.panel.expanded {
+  flex: 1;
+  /* A floor, not a fixed size. With flex:1 alone this panel is whatever is
+     LEFT OVER after the content-sized panels below it, and a player holding a
+     long property list squeezed it down to half a row — the readout they
+     actually asked for ending up the smallest thing in the rail. ~2 rows is
+     enough to be worth reading; the rest scrolls, and the siblings shrink
+     into their own internal scroll rather than overflowing, which is why
+     they all carry min-height: 0. */
+  min-height: 200px;
 }

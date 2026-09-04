@@ -19,6 +19,59 @@ const tile = (position, groupId, extra = {}) =>
 const prop = (position, ownerId, extra = {}) =>
   createProperty({ id: `p${position}`, gameId: 'g', boardTileId: `t${position}`, ownerId, ...extra });
 
+
+// ── INFRA / Hạ Tầng (wired 2026-09-04) ────────────────────────────────────
+// The one archetype that had no arm anywhere: owning both utilities granted
+// nothing at all. Its rent half is portfolio-WIDE — unlike every other
+// modifier in this file it does not care which tile was landed on.
+
+const utility = (position) =>
+  createTile({ id: `t${position}`, boardId: 'small', position, tileType: 'utility', name: `U${position}`, price: 150 });
+
+test('ASYMMETRIC: INFRA at tier 1 adds +10% to rent on a tile of a DIFFERENT archetype', () => {
+  const board = [tile(1, 'red'), utility(6)];
+  const properties = [prop(1, 'p2'), prop(6, 'p2')];
+  const gameState = { ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties };
+  // One red tile is below CONTROL's own 2-tile threshold, so the only
+  // modifier in play here is INFRA's — earned on a utility, collected on a
+  // property. That cross-archetype reach is the whole point of the effect.
+  const rent = calculateFinalRent(gameState, 'p1', 'p2', board[0], properties[0], [], undefined, 7, board);
+  assert.strictEqual(rent, 110);
+});
+
+test('ASYMMETRIC: INFRA at tier 2 (both utilities) raises that to +25%', () => {
+  const board = [tile(1, 'red'), utility(6), utility(28)];
+  const properties = [prop(1, 'p2'), prop(6, 'p2'), prop(28, 'p2')];
+  const gameState = { ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties };
+  const rent = calculateFinalRent(gameState, 'p1', 'p2', board[0], properties[0], [], undefined, 7, board);
+  assert.strictEqual(rent, 125);
+});
+
+test('ASYMMETRIC: INFRA stacks additively with CONTROL, never multiplicatively', () => {
+  const board = [tile(1, 'red'), tile(3, 'red'), utility(6), utility(28)];
+  const properties = [prop(1, 'p2'), prop(3, 'p2'), prop(6, 'p2'), prop(28, 'p2')];
+  const gameState = { ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties };
+  const rent = calculateFinalRent(gameState, 'p1', 'p2', board[0], properties[0], [], undefined, 7, board);
+  // 1 + 0.5 (CONTROL tier 1) + 0.25 (INFRA tier 2) = x1.75, not 1.5 x 1.25.
+  assert.strictEqual(rent, 175);
+});
+
+test('ASYMMETRIC: a MORTGAGED utility does not feed INFRA, same rule as every other archetype', () => {
+  const board = [tile(1, 'red'), utility(6), utility(28)];
+  const properties = [prop(1, 'p2'), prop(6, 'p2'), prop(28, 'p2', { mortgaged: true })];
+  const gameState = { ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties };
+  const rent = calculateFinalRent(gameState, 'p1', 'p2', board[0], properties[0], [], undefined, 7, board);
+  assert.strictEqual(rent, 110, 'back down to tier 1');
+});
+
+test('CLASSIC is untouched by INFRA — utilities grant no rent bonus there', () => {
+  const board = [tile(1, 'red'), utility(6), utility(28)];
+  const properties = [prop(1, 'p2'), prop(6, 'p2'), prop(28, 'p2')];
+  const gameState = { ruleset: 'CLASSIC', players: [{ id: 'p1' }, { id: 'p2' }], properties };
+  const rent = calculateFinalRent(gameState, 'p1', 'p2', board[0], properties[0], [], [board[0]], 7, board);
+  assert.strictEqual(rent, 100);
+});
+
 test('CLASSIC returns calculateRent verbatim — no archetype can touch it', () => {
   const red = tile(1, 'red');
   const gameState = { ruleset: 'CLASSIC', players: [{ id: 'p1' }, { id: 'p2' }], properties: [prop(1, 'p2')] };

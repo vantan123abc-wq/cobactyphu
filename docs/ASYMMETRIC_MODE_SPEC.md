@@ -42,8 +42,10 @@ Do Thẻ Di Chuyển thường ngắn hơn Xúc xắc (3 bước vs 7 bước), 
 
 ### 2.3. ⚡💧 HẠ TẦNG — "POWER & SUSTAIN" (Giá rẻ: $400)
 - **Mốc kích hoạt:** 1 Công ty / 2 Công ty.
-- **🚶 Đi ngang qua:** Phí quá cảnh bạn thu được +10% vào quỹ dự trữ.
-- **🎯 Dừng lại:** +25% Rent (Có Overload) + Trích Rent vào Quỹ Dự trữ.
+- **🚶 Đi ngang qua:** Đối thủ trả $25 phí hạ tầng (chỉ khi đủ 2 Công ty).
+- **🎯 Dừng lại:** Mọi tiền thuê chủ sở hữu thu được +10% (đủ 2 Công ty: +25%) — áp dụng trên **TẤT CẢ** các ô, kể cả ô thuộc hệ khác.
+
+> **[ĐÃ SỬA 2026-09-04 — bản trên là bản thực sự chạy trong code.]** Bản gốc của mục này tiêu cả hai hiệu ứng vào một "Quỹ dự trữ" chưa từng tồn tại trong codebase (không có state, không có luật nạp, không có luật tiêu) — đó chính là lý do Hạ Tầng nằm im không hiệu ứng nào suốt từ đầu. Bản đã ship giữ nguyên định vị "POWER & SUSTAIN" (hệ hỗ trợ, rẻ, tự nó không sát thương nhưng nhân giá trị mọi thứ khác bạn có) nhưng chỉ dùng từ vựng mà engine đã biết cách thanh toán. Nếu sau này Quỹ dự trữ được xây thật, đây là chỗ để xem lại.
 
 ### 2.4. 🟣🟠 GIAO THƯƠNG — "ECONOMY" (Giá trung bình: ~$1.000)
 - **Traffic:** Rất thường xuyên bị dẫm trúng do nằm ở khu vực đối thủ chọn "lesser evil" để hạ cánh.

@@ -49,6 +49,7 @@ export default function SynergyPanel() {
   const gameState = useGameStore((s) => s.currentGameState)
   const staticBoard = useGameStore((s) => s.staticBoard)
   const [viewedPlayerId, setViewedPlayerId] = useState(null)
+  const [isExpanded, setIsExpanded] = useState(true)
 
   const realPlayers = gameState?.players?.filter((p) => !p.isBank) ?? []
   const me = realPlayers.find((p) => p.playerId === user.id) ?? null
@@ -62,13 +63,31 @@ export default function SynergyPanel() {
     [gameState?.properties, staticBoard, viewed]
   )
 
+  const activeCount = rows.filter((r) => r.tier > 0).length
+
   if (!gameState || gameState.ruleset !== 'ASYMMETRIC' || !viewed) return null
 
   return (
-    <section className={styles.panel}>
-      <h2 className={styles.heading}>Thế Lực</h2>
+    <section className={`${styles.panel} ${isExpanded ? styles.expanded : ''}`}>
+      {/* Collapsible, the same shape every other panel in this rail uses
+          (MyPortfolio / CardInventory / Ledger all have this exact header
+          button). It is not decoration: the rail is a fixed-height flex
+          column, and six always-expanded archetype rows pushed the panels
+          below it out of their own space — the overlapping mess a real
+          screenshot caught. The count badge shows how many Thế Lực are
+          actually ACTIVE, so the number worth knowing survives collapsing. */}
+      <button
+        type="button"
+        className={styles.headerBtn}
+        onClick={() => setIsExpanded(!isExpanded)}
+        title={isExpanded ? 'Thu gọn' : 'Mở rộng'}
+      >
+        <h2 className={styles.heading}>Thế Lực</h2>
+        <span className={styles.count}>{activeCount}</span>
+        <span className={styles.toggleIcon}>{isExpanded ? '▼' : '▶'}</span>
+      </button>
 
-      {realPlayers.length > 1 && (
+      {isExpanded && realPlayers.length > 1 && (
         <div className={styles.playerTabs}>
           {realPlayers.map((p) => (
             <button
@@ -85,6 +104,7 @@ export default function SynergyPanel() {
         </div>
       )}
 
+      {isExpanded && (
       <ul className={styles.list}>
         {rows.map((row) => {
           const active = row.tier > 0
@@ -132,12 +152,20 @@ export default function SynergyPanel() {
                   <span className={styles.effectNone}>Chưa có hiệu ứng trong bản hiện tại</span>
                 ) : (
                   <>
-                    <span className={styles.effectLine}>🚶 {row.effects.passThrough}</span>
+                    <span className={styles.effectLine}>
+                      🚶 {row.effects.passThrough}
+                      {row.effects.passThroughTier != null && (
+                        <em className={styles.effectGate}> (cần mốc {row.thresholds[row.effects.passThroughTier - 1]} ô)</em>
+                      )}
+                    </span>
                     {row.effects.landing && (
                       <span className={styles.effectLine}>
                         🎯 {row.effects.landing}
                         {row.effects.landingTier != null && (
                           <em className={styles.effectGate}> (cần mốc {row.thresholds[row.effects.landingTier - 1]} ô)</em>
+                        )}
+                        {row.effects.landingMaxNote != null && (
+                          <em className={styles.effectGate}> ({row.effects.landingMaxNote})</em>
                         )}
                       </span>
                     )}
@@ -162,6 +190,7 @@ export default function SynergyPanel() {
           )
         })}
       </ul>
+      )}
     </section>
   )
 }
