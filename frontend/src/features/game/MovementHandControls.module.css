@@ -178,3 +178,21 @@
 .cancelButton:not(:disabled):hover {
   background: rgba(255, 255, 255, 0.08);
 }
+
+/* Destination preview (2026-09-05) — sits between the card's description and
+   its two action buttons, same "one more fact about this card" spot the
+   description line already occupies. Neutral by default; the two warning
+   variants below reuse the trap/DENIAL red already established elsewhere in
+   this component (.trapButton/.targetingHint) so a real hazard reads as
+   urgent rather than blending into ordinary info text. */
+.cardPreview {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--et-gold);
+  text-align: center;
+}
+
+.cardPreviewTrap,
+.cardPreviewWarn {
+  color: #ff4d4f;
+}

@@ -3,6 +3,7 @@ import { useAuth } from '../auth/AuthContext'
 import { useGameStore } from '../../store/gameStore'
 import { sendGameAction } from '../../network/socketClient'
 import { MOVEMENT_CARDS, cardLabel } from './movementCards'
+import { previewMovementCard } from './movementPreview'
 import ActionNotice from './ActionNotice'
 import styles from './MovementHandControls.module.css'
 
@@ -32,6 +33,7 @@ import styles from './MovementHandControls.module.css'
 export default function MovementHandControls() {
   const { user } = useAuth()
   const gameState = useGameStore((s) => s.currentGameState)
+  const staticBoard = useGameStore((s) => s.staticBoard)
   const lastError = useGameStore((s) => s.lastError)
   const trapDraft = useGameStore((s) => s.trapDraft)
   const setTrapDraft = useGameStore((s) => s.setTrapDraft)
@@ -117,6 +119,35 @@ export default function MovementHandControls() {
             <div key={`${cardId}-${i}`} className={styles.card}>
               <span className={styles.cardSteps}>{cardLabel(cardId)}</span>
               <span className={styles.cardDesc}>{card?.description ?? cardId}</span>
+              {/* "Chơi lá này thì tới đâu?" (2026-09-05, user request) — a
+                  real walk simulation (movementPreview.js), not just
+                  currentPosition + steps: it accounts for CONTROL step-loss,
+                  MOBILITY nudge/teleport and the viewer's OWN traps, all of
+                  which are public information on this board. Only a random
+                  card (MOVE_RANDOM_2_12) and an opponent's hidden trap stay
+                  genuinely unknowable, same as the real engine. */}
+              {(() => {
+                const preview = previewMovementCard(gameState, staticBoard, me, cardId)
+                if (!preview) return null
+                if (preview.uncertain) {
+                  return <span className={styles.cardPreview}>🎲 Chưa biết trước điểm đến</span>
+                }
+                if (preview.stoppedByOwnTrap) {
+                  return (
+                    <span className={`${styles.cardPreview} ${styles.cardPreviewTrap}`}>
+                      🪤 Bẫy của bạn chặn tại: {preview.tileName}
+                    </span>
+                  )
+                }
+                if (preview.teleported) {
+                  return (
+                    <span className={`${styles.cardPreview} ${styles.cardPreviewWarn}`}>
+                      📍 {preview.tileName} — bị Bến Xe hất văng tới!
+                    </span>
+                  )
+                }
+                return <span className={styles.cardPreview}>📍 Tới: {preview.tileName}</span>
+              })()}
               <div className={styles.cardActions}>
                 <button type="button" className={styles.playButton} disabled={busy} onClick={() => playCard(cardId)}>
                   ▶️ Đi
