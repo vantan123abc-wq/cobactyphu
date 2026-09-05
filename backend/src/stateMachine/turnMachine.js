@@ -1962,6 +1962,21 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
   // bankruptcy triggered from inside a movement loop, before the player has
   // even landed — has no defined place in the phase machine yet.
   for (const toll of tolls) {
+    // BUG FIX 2026-09-05 — a TOLL_BOOTH deliberately does NOT exempt its own
+    // owner from crossing it (trapEngine.js's own file header: "no safe at
+    // home exemption... placing one is a real commitment"), unlike every
+    // archetype pass-through effect, which DOES exclude the crosser
+    // (synergyEngine.js's passThroughEffect checks `property.ownerId ===
+    // crosserId` before ever returning an effect). So a player who places a
+    // TOLL_BOOTH and later crosses it themselves — walking backward with
+    // BACKUP_3, being NUDGED onto it, or simply lapping the board again —
+    // produces a toll with `ownerId === player.id`, and applyTransaction()
+    // rejects any transfer where fromPlayerId === toPlayerId outright. That
+    // turned "I crossed my own trap" into a real crash. There is no
+    // economically sensible reading of "pay yourself a toll" anyway, so this
+    // one is simply skipped — the trap still fires (lastTrapHits still
+    // records it below), it just collects nothing from its own owner.
+    if (toll.ownerId === player.id) continue;
     const payer = stateAfterCost.players.find((p) => p.id === player.id);
     const payable = Math.min(toll.amount, payer.currentBalance);
     if (payable <= 0) break;

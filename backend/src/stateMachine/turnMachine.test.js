@@ -4065,6 +4065,32 @@ test('a real move across a TOLL_BOOTH charges the crosser and pays the trap owne
   assert.deepEqual(gameState.activeTraps, [{ tileIndex: 3, type: 'TOLL_BOOTH', ownerId: 'gp-bob', expiresAtRound: 10 }], 'still standing');
 });
 
+// ── Crossing your OWN trap (bug fix 2026-09-05) ────────────────────────────
+// trapEngine.js's own file header is explicit that a trap has "no safe at
+// home exemption" — its owner is not excluded from crossing it, unlike every
+// archetype pass-through effect. Found by a Monte-Carlo balance simulation:
+// a bot that had placed a TOLL_BOOTH later crossed it itself (a real, fully
+// legal sequence — BACKUP_3 walking backward over your own recent trap, or
+// simply lapping the board again), and applyTransaction's "fromPlayerId and
+// toPlayerId must differ" guard turned "pay yourself a toll" into a crash.
+test('crossing your OWN TOLL_BOOTH does not crash — no toll changes hands, and the trap still fires', () => {
+  const state = trapGameState({ activeTraps: [{ tileIndex: 3, type: 'TOLL_BOOTH', ownerId: 'gp-alice', expiresAtRound: 10 }] });
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_6'], currentPosition: 0, currentBalance: 1500 };
+
+  const { gameState, transactions } = transitionTurn(state, board, { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: 'MOVE_6' } });
+
+  const alice = gameState.players.find((p) => p.id === 'gp-alice');
+  assert.equal(alice.currentPosition, 6, 'a toll never stops the mover, including its own owner');
+  assert.equal(alice.currentBalance, 1500, 'no self-payment — the balance is simply untouched');
+  assert.ok(!transactions.some((t) => t.transactionType === 'pass_through_toll'), 'no ledger row for a transfer that never happened');
+  // The trap firing is still recorded for display (GameBoard.jsx's own
+  // "bẫy phát nổ" marker) even though no money moved — the tile was
+  // genuinely crossed and the trap genuinely triggered, it just had no one
+  // else to charge.
+  assert.deepEqual(gameState.lastTrapHits, [{ tileIndex: 3, type: 'TOLL_BOOTH' }]);
+  assert.deepEqual(gameState.activeTraps, [{ tileIndex: 3, type: 'TOLL_BOOTH', ownerId: 'gp-alice', expiresAtRound: 10 }], 'still standing — TOLL_BOOTH is never consumed');
+});
+
 // ── Display-only movement facts (frontend "Mặt trận 3") ────────────────────
 // lastRoll doubles as a "distance actually walked" carrier for ASYMMETRIC card
 // plays, and lastTrapHits/lastTrapHitSeq report which traps went off. No game
