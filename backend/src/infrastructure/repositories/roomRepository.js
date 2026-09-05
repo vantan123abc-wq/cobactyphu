@@ -123,12 +123,29 @@ export async function createRoom(supabase, roomObj) {
   //
   // Written with a fallback rather than assumed, because migration
   // 0006_room_ruleset.sql may not be applied to every environment yet and a
-  // hard failure here would break room creation outright. PostgREST reports an
-  // unknown column as 42703; that one case retries without it and leaves the
-  // controller's in-process cache as the (restart-fragile) fallback it always
-  // was, with a loud log naming the migration to run.
+  // hard failure here would break room creation outright.
+  //
+  // FIXED 2026-09-05 — the original check here tested `error.code === '42703'`
+  // (the raw Postgres "undefined_column" code) and was NEVER exercised against
+  // a real Supabase/PostgREST instance, only a lenient in-repo fake that
+  // cannot reproduce PostgREST's actual error shape. Real hosted PostgREST
+  // validates columns against its own schema cache BEFORE a query ever
+  // reaches Postgres, so an unknown column surfaces as `PGRST204`
+  // ("Could not find the '<col>' column of '<table>' in the schema cache"),
+  // not 42703 — which meant this fallback could never fire on a real
+  // un-migrated database, and room creation (Đột Phá AND Cổ Điển alike, since
+  // both send a `ruleset` key) would hard-fail with no room ever created.
+  // Checks BOTH the modern PostgREST code and the raw Postgres one, plus a
+  // message-text fallback naming this exact column, so a future PostgREST
+  // version change can't silently reopen this hole a second time.
+  const isMissingRulesetColumn = (error) =>
+    error != null &&
+    (error.code === 'PGRST204' ||
+      error.code === '42703' ||
+      /ruleset.*column|column.*ruleset/i.test(error.message ?? ''));
+
   let insert = await supabase.from('rooms').insert({ ...baseRow, ruleset: roomObj.ruleset ?? 'CLASSIC' }).select().single();
-  if (insert.error?.code === '42703') {
+  if (isMissingRulesetColumn(insert.error)) {
     console.warn(
       '[roomRepository] rooms.ruleset column is missing — apply migration 0006_room_ruleset.sql. ' +
         'Until then a backend restart between room creation and game start silently downgrades ASYMMETRIC rooms to CLASSIC.'

@@ -94,6 +94,88 @@ test('a rooms row with NO ruleset column maps to null, not CLASSIC', async () =>
   assert.equal(record.ruleset, null, 'null so the caller can tell "column absent" from "Classic room"');
 });
 
+// ── The 2026-09-04 retry logic, against the REAL PostgREST error shape ────
+// createFakeSupabase always accepts any insert regardless of columns, so it
+// cannot exercise the missing-column retry path at all — that path was
+// shipped UNVERIFIED against a real database and (confirmed live, 2026-09-05)
+// used the wrong error code, silently breaking room creation entirely once
+// deployed against a database missing the migration. These use a minimal
+// standalone mock that returns the ACTUAL response Supabase's hosted
+// PostgREST gives for an unrecognized column: `{ code: 'PGRST204', message:
+// "Could not find the 'ruleset' column of 'rooms' in the schema cache" }`.
+
+/**
+ * The real fakeSupabase, with the FIRST insert into 'rooms' that contains a
+ * `ruleset` key forced to fail exactly the way real hosted PostgREST fails
+ * for an unrecognized column — everything else (the retry insert, and
+ * fetchPlayers' own room_players/profiles reads afterward) goes through the
+ * genuine fake untouched.
+ */
+function postgrestMissingColumnSupabase(errorShape) {
+  const base = seededSupabase();
+  const calls = [];
+  let firstRulesetInsertPending = true;
+  return {
+    ...base,
+    from(table) {
+      const real = base.from(table);
+      if (table !== 'rooms') return real;
+      return {
+        ...real,
+        insert(row) {
+          calls.push({ ...row });
+          if (firstRulesetInsertPending && 'ruleset' in row) {
+            firstRulesetInsertPending = false;
+            return {
+              select: () => ({ single: async () => ({ data: null, error: errorShape }) }),
+            };
+          }
+          return real.insert(row);
+        },
+      };
+    },
+    _calls: calls,
+  };
+}
+
+test('createRoom: a real PostgREST PGRST204 (missing column) triggers the retry, not a hard failure', async () => {
+  const supabase = postgrestMissingColumnSupabase({ code: 'PGRST204', message: "Could not find the 'ruleset' column of 'rooms' in the schema cache" });
+  // room_players insert isn't reached in this minimal mock (only .from('rooms')
+  // is wired) — pass no players so createRoom never calls .from('room_players').
+  const record = await createRoom(supabase, {
+    id: 'room-x',
+    joinCode: 'PGX001',
+    hostId: 'user-host',
+    ruleset: 'ASYMMETRIC',
+    status: 'waiting_for_players',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    players: [],
+  });
+
+  assert.equal(record.id, 'room-x', 'room creation succeeds via the fallback instead of throwing');
+  assert.equal(supabase._calls.length, 2, 'first attempt WITH ruleset, then a retry WITHOUT it');
+  assert.ok('ruleset' in supabase._calls[0], 'first attempt included the column');
+  assert.ok(!('ruleset' in supabase._calls[1]), 'retry omitted it entirely');
+});
+
+test('createRoom: the raw Postgres 42703 code is ALSO caught (older PostgREST / a direct SQL path)', async () => {
+  const supabase = postgrestMissingColumnSupabase({ code: '42703', message: 'column "ruleset" of relation "rooms" does not exist' });
+  const record = await createRoom(supabase, {
+    id: 'room-y', joinCode: 'PGY001', hostId: 'user-host', ruleset: 'CLASSIC',
+    status: 'waiting_for_players', createdAt: '2026-01-01T00:00:00.000Z', players: [],
+  });
+  assert.equal(record.id, 'room-y');
+  assert.equal(supabase._calls.length, 2);
+});
+
+test('createRoom: a genuinely UNRELATED database error still throws (the retry does not swallow real failures)', async () => {
+  const supabase = postgrestMissingColumnSupabase({ code: '23505', message: 'duplicate key value violates unique constraint' });
+  await assert.rejects(
+    () => createRoom(supabase, { id: 'room-z', joinCode: 'DUP001', hostId: 'user-host', status: 'waiting_for_players', createdAt: '2026-01-01T00:00:00.000Z', players: [] }),
+    /duplicate key/
+  );
+});
+
 test('getRoomById: reconstructs players via room_players + profiles join, isHost derived from host_id', async () => {
   const supabase = seededSupabase();
   const created = await createRoom(supabase, {
