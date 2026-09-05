@@ -1988,7 +1988,17 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
       fromPlayerId: bank.id,
       toPlayerId: player.id,
       amount: PASS_GO_SALARY,
-      transactionType: 'pass_go',
+      // BUG FIX 2026-09-05 — was 'pass_go', a transactionType economy/
+      // applyTransaction.js's TRANSACTION_TYPES has never recognized (the
+      // other two PASS_GO sites in this same file, both CLASSIC's dice-roll
+      // path, have always correctly used 'pass_go_salary'). applyTransaction
+      // throws on an unrecognized type, so this was a REAL crash: any
+      // ASYMMETRIC player crossing GO while playing a movement card ended
+      // their match right there. Found by a Monte-Carlo balance simulation
+      // driving this exact function repeatedly — every single trial aborted
+      // on the first lap, which a spot-played match easily misses (crossing
+      // GO needs one full 36-tile lap first).
+      transactionType: 'pass_go_salary',
     });
     stateAfterMove = stateWithGo;
     transactions.push(goTx);

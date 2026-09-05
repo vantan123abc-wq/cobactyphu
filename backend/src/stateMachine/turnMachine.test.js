@@ -3893,6 +3893,29 @@ test('the doubles bonus still works normally for a player who is NOT in jail', (
   assert.equal(gameState.currentDoublesStreak, 1, 'and keeps the streak that could still reach a 3rd double');
 });
 
+// ── PASS_GO on the ASYMMETRIC movement-card path (bug fix 2026-09-05) ──────
+// Found by a Monte-Carlo balance simulation driving this exact function
+// repeatedly: handlePlayMovementCard used transactionType 'pass_go' — never
+// once recognized by economy/applyTransaction.js's TRANSACTION_TYPES, which
+// only has 'pass_go_salary' (exactly what the two CLASSIC dice-roll PASS_GO
+// sites in this same file have always used). applyTransaction() throws on an
+// unrecognized type, so ANY ASYMMETRIC player crossing GO while playing a
+// movement card crashed their match right there — invisible to manual
+// testing because it needs a full 36-tile lap first, and invisible to the
+// existing PASS_GO test coverage because both prior tests only ever drove
+// the CLASSIC ROLL_DICE path.
+test('PLAY_MOVEMENT_CARD crossing GO pays salary with a transactionType applyTransaction actually recognizes', () => {
+  const state = { ...baseGameState({ ruleset: 'ASYMMETRIC', phase: 'PLAYING_CARD' }) };
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_5'], currentPosition: 34 }; // alice, 34 + 5 wraps past GO
+  const { gameState, transactions } = transitionTurn(state, board, { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: 'MOVE_5' } });
+
+  const alice = gameState.players.find((p) => p.id === 'gp-alice');
+  assert.equal(alice.currentPosition, 3, 'wrapped past position 0');
+  const goTx = transactions.find((t) => t.amount === 200 && t.toGamePlayerId === 'gp-alice');
+  assert.ok(goTx, 'a $200 PASS GO payment was actually recorded, not thrown away');
+  assert.equal(goTx.transactionType, 'pass_go_salary', 'the ONE transactionType economy/applyTransaction.js recognizes for this');
+});
+
 // ── Trap system (trapEngine.js, ROADBLOCK/TOLL_BOOTH) ───────────────────────
 // Shares PLAYING_CARD with PLAY_MOVEMENT_CARD by design (turnMachine.js's own
 // VALID_ACTIONS_BY_PHASE comment) — placing a trap spends a movement card
