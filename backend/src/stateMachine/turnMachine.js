@@ -1888,6 +1888,24 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
   let stateAfterCost = replacePlayer(gameState, { ...player, movementHand: newHand });
 
   if (cardDef.cost > 0) {
+    // BUG FIX 2026-09-05 — found the same way handleBuyProperty's identical
+    // gap was found (2026-08-25, that fix's own comment): fuzzing rather
+    // than review, every reproduction tracing to exactly this call. Playing
+    // a costed card (STEP_1/2/3 at $50, SPRINT_12 at $100) had NO
+    // affordability check before spending — a player holding less than the
+    // card's cost simply went negative, and applyTransaction's own "balance
+    // may never go negative" guard turned that straight into a crash instead
+    // (a hard throw, not a graceful rejection). Rejecting is correct here,
+    // not forced liquidation: playing a movement card is voluntary, so
+    // "you cannot afford this one" is a legitimate refusal, same reasoning
+    // handleBuyProperty's own fix already established for the identical
+    // shape of bug.
+    if (player.currentBalance < cardDef.cost) {
+      throw new InvalidPropertyActionError(
+        'INSUFFICIENT_BALANCE',
+        `handlePlayMovementCard: balance ${player.currentBalance} is less than the cost ${cardDef.cost} of '${cardId}'`
+      );
+    }
     const bank = getBankPlayer(stateAfterCost);
     const { gameState: statePaid, transaction } = applyTransaction(stateAfterCost, {
       fromPlayerId: player.id,
@@ -2004,7 +2022,22 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
     transactions.push(goTx);
   }
 
-  const landing = resolveLanding(stateAfterMove, boardTiles, finalPlayer.id, now);
+  // BUG FIX 2026-09-05 — this call was missing its diceTotal argument
+  // entirely (`resolveLanding(gameState, boardTiles, playerId, diceTotal,
+  // now)` is 5-arity), which silently shifted `now` into the diceTotal slot
+  // and left the real `now` undefined one position later. Invisible for a
+  // property/transport landing (nothing there reads diceTotal), but a
+  // movement card landing on a utility calls calculateRent.js's own utility
+  // formula, which requires a real number and threw a TypeError the instant
+  // it got a timestamp STRING instead — a real crash on a routine landing.
+  // And even where it didn't throw, every bankrupAt/endedAt timestamp set
+  // downstream of a movement-card landing was silently `undefined`.
+  // moveByStepsAndResolve() (this same file, above) already solved the
+  // identical "this movement has no real dice roll to give calculateRent"
+  // problem for event-card movement — UTILITY_DICE_FALLBACK (7, the
+  // statistical average) is that established answer, reused here rather
+  // than inventing a second one.
+  const landing = resolveLanding(stateAfterMove, boardTiles, finalPlayer.id, UTILITY_DICE_FALLBACK, now);
 
   // ── Display-only movement facts (2026-09-04, frontend "Mặt trận 3") ─────
   // Everything below is for the client's animation layer and is read back by

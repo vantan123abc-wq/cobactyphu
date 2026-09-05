@@ -3916,6 +3916,58 @@ test('PLAY_MOVEMENT_CARD crossing GO pays salary with a transactionType applyTra
   assert.equal(goTx.transactionType, 'pass_go_salary', 'the ONE transactionType economy/applyTransaction.js recognizes for this');
 });
 
+// ── PLAY_MOVEMENT_CARD landing on a utility (bug fix 2026-09-05) ───────────
+// A second bug the same simulation run surfaced: handlePlayMovementCard's
+// call to resolveLanding was missing its diceTotal argument entirely
+// (resolveLanding(gameState, boardTiles, playerId, diceTotal, now) is
+// 5-arity) — shifting `now` into the diceTotal slot and leaving the real
+// `now` undefined. Silent for a property/transport landing (nothing there
+// reads diceTotal), but calculateRent.js's own utility formula requires a
+// real number and threw the instant it got a timestamp STRING instead —
+// landing on someone else's utility via a movement card crashed the match.
+test('PLAY_MOVEMENT_CARD landing on an opponent\'s utility charges rent instead of throwing', () => {
+  const state = { ...baseGameState({ ruleset: 'ASYMMETRIC', phase: 'PLAYING_CARD' }) };
+  state.players[1] = { ...state.players[1], movementHand: ['STEP_2'], currentPosition: 4, currentBalance: 1500 }; // alice, 4 + 2 = 6 (the fixture's own utility tile)
+  state.properties = state.properties.map((p) => (p.boardTileId === 't6' ? { ...p, ownerId: 'gp-bob' } : p));
+
+  const { gameState, transactions } = transitionTurn(state, board, { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: 'STEP_2' } });
+
+  const alice = gameState.players.find((p) => p.id === 'gp-alice');
+  assert.equal(alice.currentPosition, 6);
+  const rentTx = transactions.find((t) => t.transactionType === 'rent');
+  assert.ok(rentTx, 'rent was actually charged, not thrown away by a crash');
+  assert.equal(rentTx.toGamePlayerId, 'gp-bob');
+  // UTILITY_DICE_FALLBACK (7) x 4 (single utility owned) = 28, the same
+  // deliberate non-dice fallback moveByStepsAndResolve already established
+  // for event-card movement, now applied consistently here too — then
+  // +10% from bob's own INFRA tier 1 (he owns this exact utility, which is
+  // what put him at tier 1 in the first place): floor(28 x 1.1) = 30.
+  assert.equal(rentTx.amount, 30);
+});
+
+// ── PLAY_MOVEMENT_CARD's own cost, unaffordable (bug fix 2026-09-05) ───────
+// Same shape of bug handleBuyProperty's own 2026-08-25 fix already closed
+// once ("the ONLY voluntary purchase with no affordability check at all... a
+// player holding \$80 could buy a \$300 street and simply go to -\$220"),
+// found again the same way (fuzzing, not review): a costed movement card
+// (STEP_1/2/3 \$50, SPRINT_12 \$100) had no affordability check before
+// spending, so a low-cash player playing one crashed instead of being
+// refused.
+test('PLAY_MOVEMENT_CARD rejects a costed card the player cannot afford, instead of going negative', () => {
+  const state = { ...baseGameState({ ruleset: 'ASYMMETRIC', phase: 'PLAYING_CARD' }) };
+  state.players[1] = { ...state.players[1], movementHand: ['SPRINT_12'], currentBalance: 40 }; // SPRINT_12 costs $100
+  assert.throws(
+    () => transitionTurn(state, board, { type: 'PLAY_MOVEMENT_CARD', payload: { cardId: 'SPRINT_12' } }),
+    (err) => err instanceof InvalidPropertyActionError && err.reason === 'INSUFFICIENT_BALANCE'
+  );
+  // Rejected, not partially applied — the card must still be in hand and the
+  // balance untouched, same "reject cleanly, don't half-spend" bar
+  // handleBuyProperty's own regression test holds itself to.
+  const alice = state.players.find((p) => p.id === 'gp-alice');
+  assert.deepEqual(alice.movementHand, ['SPRINT_12']);
+  assert.equal(alice.currentBalance, 40);
+});
+
 // ── Trap system (trapEngine.js, ROADBLOCK/TOLL_BOOTH) ───────────────────────
 // Shares PLAYING_CARD with PLAY_MOVEMENT_CARD by design (turnMachine.js's own
 // VALID_ACTIONS_BY_PHASE comment) — placing a trap spends a movement card
