@@ -65,7 +65,7 @@ Do Thẻ Di Chuyển thường ngắn hơn Xúc xắc (3 bước vs 7 bước), 
 ### 3.2. 🩵🔵 TỬ ĐỊA — "EXECUTION" (Giá đắt nhất: ~$1.670)
 - **Traffic:** Nằm cuối bàn cờ (Ô 28-35). Ít người qua lại nhất, hiệu quả trên vốn bị hụt nghiêm trọng. Phải bù đắp bằng sát thương cực cao.
 - **Mốc kích hoạt:** 2 Đất / 4 Đất / 5 Đất.
-- **🚶 Đi ngang qua:** Trả phí quá cảnh khổng lồ = **[Cấp độ nhà × $75]**. (Tăng gấp 3 lần so với V3 để cân bằng với Control).
+- **🚶 Đi ngang qua:** Trả phí quá cảnh = **[Cấp độ nhà × $30]**. (Retuned 2026-09-06: $75 — vốn tăng gấp 3 lần từ V3 để cân bằng với Control — chưa từng được kiểm lại sau khi bẫy/Hạ Tầng/bộ bài thật ra đời. Mô phỏng Monte-Carlo trên engine thật cho thấy $75 khiến Tử Địa thắng 60%+; tắt hẳn phí lại khiến nó dưới 40% — chứng minh phí quá cảnh, không phải tiền thuê gốc, mới là đòn bẩy thật. $30 đưa tỉ lệ thắng về ~52-55%, tỉ lệ tổng tài sản đo được đúng 1.00 ở mẫu 600 trận.)
 - **🎯 Dừng lại:** Trả Rent đầy đủ + Hiệu ứng Tịch thu.
 
 ---

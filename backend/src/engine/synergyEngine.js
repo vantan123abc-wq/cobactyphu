@@ -143,8 +143,24 @@ export function passThroughEffect(gameState, boardTiles, tile, crosserId, fromPo
   }
 
   // EXECUTION (§3.2): scales with development, so it pays nothing until the
-  // owner actually builds. $75/level is the simulated figure — at $25 the
-  // toll was 1.5% of all money movement, i.e. decorative.
+  // owner actually builds.
+  //
+  // RETUNED 2026-09-06. $75/level (the figure this comment used to cite as
+  // "the simulated figure") was never actually re-verified against the
+  // full shipped ruleset — traps, INFRA, the real 18-card deck and the
+  // real jail routing all landed after that number was picked. A
+  // Monte-Carlo harness driving the real engine (backend/scripts, not
+  // committed — see docs/ASYMMETRIC_MODE_SPEC.md's own balance section)
+  // measured a CONTROL-style specialist at 60%+ win rate against a
+  // generalist at $75/level, and dropping the toll to $0 entirely still
+  // left EXECUTION under 40% — proof the toll, not EXECUTION's already-high
+  // base rent, was the actual swing factor. A sweep from $0 to $75 in $5-15
+  // steps (400-600 trials per point) crossed 50% win rate right around
+  // $25-30; $30 is the value used, landing EXECUTION at ~52-55% (net worth
+  // ratio measured at exactly 1.00 at n=600) — a deliberate, small edge
+  // rather than a razor's-edge 50%, since EXECUTION is also the single
+  // most expensive, riskiest archetype to commit to on the board ($1,670 to
+  // draft into, vs $400-1,480 for everything else).
   if (archetype === 'EXECUTION') {
     const amount = property.upgradeLevel * EXECUTION_TOLL_PER_LEVEL;
     return amount > 0 ? { type: 'TOLL', amount, ownerId: property.ownerId } : null;
@@ -320,7 +336,9 @@ function highestRentTileOf(gameState, boardTiles, ownerId) {
   return owned.reduce((best, candidate) => (rentOf(candidate) > rentOf(best) ? candidate : best)).tile;
 }
 
-export const EXECUTION_TOLL_PER_LEVEL = 75;
+// See passThroughEffect's own EXECUTION comment above for the 2026-09-06
+// retuning that landed on this number.
+export const EXECUTION_TOLL_PER_LEVEL = 30;
 
 /**
  * Flat fee for crossing a utility owned by someone holding BOTH of them

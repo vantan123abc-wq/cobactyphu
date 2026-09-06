@@ -109,7 +109,7 @@ test('passThroughEffect: EXECUTION charges per development level, nothing while 
   const built = stateWith([own(33, 'p2', { upgradeLevel: 3 }), own(35, 'p2')]);
   assert.deepStrictEqual(passThroughEffect(built, BOARD, tile33, 'p1'), {
     type: 'TOLL',
-    amount: 225, // 3 levels x $75
+    amount: 90, // 3 levels x $30 (retuned 2026-09-06, see EXECUTION_TOLL_PER_LEVEL's own comment)
     ownerId: 'p2',
   });
 });

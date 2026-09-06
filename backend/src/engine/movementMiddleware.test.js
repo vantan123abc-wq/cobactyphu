@@ -85,7 +85,7 @@ test('EXECUTION tolls are returned per crossed tile, not aggregated, and never f
   assert.strictEqual(r.newPosition, 31);
   assert.deepStrictEqual(
     r.tolls.map((t) => t.amount),
-    [150, 75],
+    [60, 30], // 2 levels x $30 and 1 level x $30 (retuned 2026-09-06, see EXECUTION_TOLL_PER_LEVEL's own comment)
     'ô28 (2 levels) and ô29 (1 level); ô31 is the landing tile and is billed by resolveLanding instead'
   );
   assert.ok(r.tolls.every((t) => t.ownerId === 'p2'));

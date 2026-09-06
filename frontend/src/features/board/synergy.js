@@ -47,7 +47,7 @@ const ARCHETYPE_META = {
   CONTROL: { label: 'Bình Dân', color: '#ef4444', effect: 'Đi ngang qua: đối thủ bị trừ 1 bước' },
   ECONOMY: { label: 'Giao Thương', color: '#a855f7', effect: 'Đi ngang qua: nạn nhân bị đổi 1 lá bài' },
   DENIAL: { label: 'Thượng Lưu', color: '#f59e0b', effect: 'Đi ngang qua: lộ bài của nạn nhân' },
-  EXECUTION: { label: 'Tử Địa', color: '#3b82f6', effect: 'Đi ngang qua: phí quá cảnh $75 × cấp nhà' },
+  EXECUTION: { label: 'Tử Địa', color: '#3b82f6', effect: 'Đi ngang qua: phí quá cảnh $30 × cấp nhà' },
   MOBILITY: { label: 'Bến Xe', color: '#14b8a6', effect: 'Đi ngang qua: đẩy đối thủ 1 bước' },
   INFRA: { label: 'Hạ Tầng', color: '#94a3b8', effect: 'Hệ hạ tầng' },
 }
@@ -153,7 +153,10 @@ const ARCHETYPE_EFFECTS = {
     landing: 'Đối thủ dừng lại: lộ toàn bộ tay bài trong 2 vòng',
   },
   EXECUTION: {
-    passThrough: 'Đối thủ đi ngang qua trả phí $75 × cấp nhà',
+    // Retuned 2026-09-06 alongside the backend constant this mirrors
+    // (engine/synergyEngine.js's EXECUTION_TOLL_PER_LEVEL) — see that
+    // file's own comment for the Monte-Carlo methodology behind $30.
+    passThrough: 'Đối thủ đi ngang qua trả phí $30 × cấp nhà',
     landing: null,
   },
   MOBILITY: {
