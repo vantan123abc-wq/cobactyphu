@@ -77,6 +77,13 @@ export default function DraftPhase() {
   }
 
   const { round, pickOrder, currentPickIndex, availableTileIds } = gameState.draftState
+  // Mirror of backend engine/draftPhase.js's draftRoundsFor(), same standing
+  // as every other duplicated backend constant here (there is no shared
+  // package). The header used to read a hardcoded "Vòng {round}/2", which
+  // became a lie the moment the draft started scaling with the seat count —
+  // a 4-player draft runs 4 rounds. pickOrder holds exactly one entry per
+  // seated player, so the count is derivable without a new server field.
+  const totalRounds = pickOrder.length >= 4 ? 4 : pickOrder.length === 3 ? 3 : 2
   const me = gameState.players.find((p) => p.playerId === user.id)
   const currentPickerId = pickOrder[currentPickIndex]
   const isMyPick = me != null && me.id === currentPickerId
@@ -111,7 +118,7 @@ export default function DraftPhase() {
   return (
     <div className={styles.backdrop}>
       <div className={styles.modal}>
-        <p className={styles.eyebrow}>🃏 Vòng Draft — Chọn Đất (Vòng {round}/2)</p>
+        <p className={styles.eyebrow}>🃏 Vòng Draft — Chọn Đất (Vòng {round}/{totalRounds})</p>
 
         {deadlineAt && (
           <p className={timeLeft <= 5 ? `${styles.timer} ${styles.timerUrgent}` : styles.timer}>Còn {timeLeft}s</p>

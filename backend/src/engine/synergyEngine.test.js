@@ -109,9 +109,35 @@ test('passThroughEffect: EXECUTION charges per development level, nothing while 
   const built = stateWith([own(33, 'p2', { upgradeLevel: 3 }), own(35, 'p2')]);
   assert.deepStrictEqual(passThroughEffect(built, BOARD, tile33, 'p1'), {
     type: 'TOLL',
-    amount: 135, // 3 levels x $45 (re-raised 2026-09-07, see EXECUTION_TOLL_PER_LEVEL's own comment)
+    amount: 90, // 2 tiles = tier 1, so 3 levels x $30 (the tier-1 rate)
     ownerId: 'p2',
   });
+});
+
+test('EXECUTION\'s toll rises with the TIER, not just the house level — the ladder that used to be decorative', () => {
+  // Before 2026-09-07 the toll was a flat $45/level at every tier, so owning
+  // 2 EXECUTION tiles and owning 5 produced byte-identical effects while the
+  // Thế Lực panel counted "còn 2 ô nữa lên cấp 2" at the player. Same house
+  // level throughout here — only the SET size changes.
+  const tile33 = BOARD.find((t) => t.position === 33);
+  const withSet = (extra) =>
+    passThroughEffect(stateWith([own(33, 'p2', { upgradeLevel: 2 }), own(35, 'p2'), ...extra]), BOARD, tile33, 'p1').amount;
+
+  assert.strictEqual(withSet([]), 60, 'tier 1 (2 tiles): 2 levels x $30');
+  assert.strictEqual(withSet([own(28, 'p2'), own(29, 'p2')]), 90, 'tier 2 (4 tiles): 2 levels x $45');
+  assert.strictEqual(withSet([own(28, 'p2'), own(29, 'p2'), own(31, 'p2')]), 120, 'tier 3 (all 5): 2 levels x $60');
+});
+
+test('CONTROL takes TWO steps at its top tier — its own ladder, which was likewise flat before', () => {
+  const tile1 = BOARD.find((t) => t.position === 1);
+  const steps = (positions) =>
+    passThroughEffect(stateWith(positions.map((p) => own(p, 'p2'))), BOARD, tile1, 'p1').amount;
+
+  // Thresholds are [2, 3, 4] as of 2026-09-07 (were [2, 4, 5], whose top tier
+  // demanded all five tiles and was measured reached in 2% of matches).
+  assert.strictEqual(steps([1, 3]), 1, 'tier 1');
+  assert.strictEqual(steps([1, 3, 5]), 1, 'tier 2 — still one step');
+  assert.strictEqual(steps([1, 3, 5, 7]), 2, 'tier 3 — the payoff for completing the set');
 });
 
 test('passThroughEffect never fires on your own tile, or an unowned one', () => {

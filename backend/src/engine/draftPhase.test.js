@@ -1,49 +1,88 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import { createTile } from '../domain/tile.js';
-import { buildSnakeOrder, offerDraftTiles, initialDraftState, advanceDraftState, DRAFT_ROUNDS, DRAFT_OFFER_SIZE } from './draftPhase.js';
+import { buildSnakeOrder, offerDraftTiles, initialDraftState, advanceDraftState, draftRoundsFor, DRAFT_ROUNDS, DRAFT_OFFER_SIZE } from './draftPhase.js';
 
 const T = (position, tileType) =>
   createTile({ id: `t${position}`, boardId: 'small', position, tileType, name: `T${position}` });
 
-// 6 property tiles + 1 transport + 1 utility, mirroring the real board's own
-// exclusion rule (transport/utility are never draftable — file header).
+// 6 property tiles + 1 transport + 1 utility. All eight are draftable as of
+// 2026-09-07 (DRAFTABLE_TILE_TYPES) — the transport/utility exclusion this
+// fixture was originally built to prove was reversed after it measured as the
+// reason MOBILITY and INFRA specialists activated no tier at all in ~half of
+// 4-player matches. One non-property of each kind is kept here precisely so
+// the INCLUSION stays covered.
 const BOARD = [
   T(1, 'property'), T(2, 'property'), T(3, 'property'),
   T(4, 'property'), T(5, 'property'), T(6, 'property'),
   T(7, 'transport'), T(8, 'utility'),
 ];
 
-test('buildSnakeOrder: round 1 is ascending order as given, round 2 reverses it', () => {
+test('buildSnakeOrder: odd rounds ascend, EVERY even round reverses', () => {
   const order = ['a', 'b', 'c', 'd'];
   assert.deepStrictEqual(buildSnakeOrder(order, 1), ['a', 'b', 'c', 'd']);
   assert.deepStrictEqual(buildSnakeOrder(order, 2), ['d', 'c', 'b', 'a']);
+  // Rounds 3 and 4 only exist since draftRoundsFor() started scaling with the
+  // seat count. The rule used to be a literal `round === 2`, which would have
+  // run rounds 3 AND 4 ascending and handed seat 'a' the first pick three
+  // times out of four — the exact compounding advantage snake order prevents.
+  assert.deepStrictEqual(buildSnakeOrder(order, 3), ['a', 'b', 'c', 'd']);
+  assert.deepStrictEqual(buildSnakeOrder(order, 4), ['d', 'c', 'b', 'a']);
   assert.deepStrictEqual(order, ['a', 'b', 'c', 'd'], 'the input array itself is never mutated');
 });
 
-test('offerDraftTiles: never offers transport/utility, only property tiles', () => {
+test('draftRoundsFor: scales with the seat count — 2 seats keep 2 rounds, 4 seats get 4', () => {
+  assert.strictEqual(draftRoundsFor(2), 2);
+  assert.strictEqual(draftRoundsFor(3), 3);
+  assert.strictEqual(draftRoundsFor(4), 4);
+  assert.strictEqual(draftRoundsFor(6), 4, 'the large board seats 5-6; the ladder tops out at 4 rounds');
+});
+
+test('advanceDraftState: a 4-seat draft runs FOUR rounds, not two', () => {
+  const seats = ['p1', 'p2', 'p3', 'p4'];
+  // Round 2 used to be the last one for every seat count. At 4 seats it is
+  // now the halfway point: the draft must roll into round 3.
+  const endOfRound2 = { round: 2, pickOrder: [...seats].reverse(), currentPickIndex: 3, availableTileIds: [] };
+  const rolled = advanceDraftState(endOfRound2, seats, BOARD, new Set(), () => 0.5);
+  assert.strictEqual(rolled.done, false);
+  assert.strictEqual(rolled.draftState.round, 3);
+  assert.deepStrictEqual(rolled.draftState.pickOrder, seats, 'round 3 is odd, so ascending again');
+
+  const endOfRound4 = { round: 4, pickOrder: [...seats].reverse(), currentPickIndex: 3, availableTileIds: [] };
+  assert.deepStrictEqual(advanceDraftState(endOfRound4, seats, BOARD, new Set(), () => 0.5), { done: true, draftState: null });
+});
+
+test('offerDraftTiles: offers stations and utilities too, not just property', () => {
   const offer = offerDraftTiles(BOARD, new Set(), () => 0.5);
   assert.strictEqual(offer.length, DRAFT_OFFER_SIZE);
   for (const id of offer) {
-    assert.strictEqual(BOARD.find((t) => t.id === id).tileType, 'property');
+    assert.ok(['property', 'transport', 'utility'].includes(BOARD.find((t) => t.id === id).tileType));
   }
+
+  // The reachability guarantee the reversal exists for: with every property
+  // already taken, the two non-property tiles must still be offerable. Under
+  // the old property-only rule this returned an empty offer, which is exactly
+  // how a MOBILITY or INFRA specialist ended up unable to draft toward their
+  // own archetype at all.
+  const propertiesGone = new Set(['t1', 't2', 't3', 't4', 't5', 't6']);
+  assert.deepStrictEqual(offerDraftTiles(BOARD, propertiesGone, () => 0.5).sort(), ['t7', 't8']);
 });
 
 test('offerDraftTiles: excludes already-owned tile ids', () => {
   const owned = new Set(['t1', 't2', 't3']);
   const offer = offerDraftTiles(BOARD, owned, () => 0.5);
-  assert.strictEqual(offer.length, 3, 'only t4/t5/t6 remain');
-  assert.deepStrictEqual(offer.sort(), ['t4', 't5', 't6']);
+  assert.strictEqual(offer.length, DRAFT_OFFER_SIZE, 't4/t5/t6 plus the station and utility remain');
+  assert.ok(offer.every((id) => !owned.has(id)));
 });
 
 test('offerDraftTiles: degrades gracefully (fewer than `count`) instead of throwing when the pool runs low', () => {
-  const owned = new Set(['t1', 't2', 't3', 't4', 't5']);
+  const owned = new Set(['t1', 't2', 't3', 't4', 't5', 't6', 't7']);
   const offer = offerDraftTiles(BOARD, owned, () => 0.5);
-  assert.deepStrictEqual(offer, ['t6']);
+  assert.deepStrictEqual(offer, ['t8']);
 });
 
 test('offerDraftTiles: an empty pool returns an empty offer, not an error', () => {
-  const owned = new Set(['t1', 't2', 't3', 't4', 't5', 't6']);
+  const owned = new Set(BOARD.map((t) => t.id));
   assert.deepStrictEqual(offerDraftTiles(BOARD, owned, () => 0.5), []);
 });
 

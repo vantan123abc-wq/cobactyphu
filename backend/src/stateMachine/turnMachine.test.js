@@ -3782,8 +3782,8 @@ test('round 1 completing rolls into round 2: fresh offer excluding round-1 picks
   assert.ok(!afterBob.draftState.availableTileIds.includes('t1'), 't1 was drafted in round 1');
   assert.ok(!afterBob.draftState.availableTileIds.includes('t10'), 't10 was drafted in round 1');
   assert.ok(
-    afterBob.draftState.availableTileIds.every((id) => !['t2', 't6'].includes(id)),
-    'transport (t2) and utility (t6) are never offered — draftPhase.js only offers `property` tiles'
+    afterBob.draftState.availableTileIds.every((id) => id !== 't1' && id !== 't10'),
+    'the offer is drawn from what is still unowned; the station (t2) and utility (t6) are eligible as of 2026-09-07'
   );
 });
 

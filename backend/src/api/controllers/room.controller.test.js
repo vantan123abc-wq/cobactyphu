@@ -361,7 +361,7 @@ test('startGame: constructs one unowned Property per buyable tile from the real 
   }
 });
 
-test('startGame: ruleset ASYMMETRIC starts the match in DRAFTING_ACTIVE with a populated draftState, offering only property tiles', async () => {
+test('startGame: ruleset ASYMMETRIC starts the match in DRAFTING_ACTIVE with a populated draftState offering every buyable tile', async () => {
   const boardTilesByBoard = {
     small: [
       createTile({ id: 't0', boardId: 'small', position: 0, tileType: 'go', name: 'GO' }),
@@ -388,8 +388,8 @@ test('startGame: ruleset ASYMMETRIC starts the match in DRAFTING_ACTIVE with a p
   assert.deepEqual(gameState.draftState.pickOrder.sort(), gameState.players.filter((p) => !p.isBank).map((p) => p.id).sort());
   assert.deepEqual(
     gameState.draftState.availableTileIds.sort(),
-    ['t1', 't2'],
-    'only the property tiles are offered — the station and the utility never are'
+    ['t1', 't2', 't3', 't4'],
+    'every buyable tile is offered — the station and the utility included, as of 2026-09-07'
   );
 });
 

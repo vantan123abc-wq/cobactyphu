@@ -41,7 +41,12 @@ const GROUP_ARCHETYPE = Object.freeze({
  * "Trạm Trung Chuyển is physically impossible on the small board" hole.
  */
 const TIERS = Object.freeze({
-  CONTROL: [2, 4, 5],
+  // CONTROL was [2, 4, 5] until 2026-09-07 — i.e. its top tier demanded ALL
+  // FIVE of its tiles. Measured, that tier was reached in 2% of 2-player
+  // matches and 0% of 4-player ones, so two thirds of the ladder existed only
+  // in the UI. [2, 3, 4] leaves the entry threshold alone and makes the rest
+  // actually reachable (tier 2: 10% -> 38%, tier 3: 3% -> 13% at n=500).
+  CONTROL: [2, 3, 4],
   ECONOMY: [2, 4, 6],
   DENIAL: [2, 4, 6],
   EXECUTION: [2, 4, 5],
@@ -139,7 +144,7 @@ export function passThroughEffect(gameState, boardTiles, tile, crosserId, fromPo
   // cheapest archetype on the board ($440 for all five tiles) and already
   // collects 12.4 crossings per $100 invested against EXECUTION's 2.95.
   if (archetype === 'CONTROL') {
-    return { type: 'STEP_LOSS', amount: 1 };
+    return { type: 'STEP_LOSS', amount: tier >= CONTROL_EXTRA_STEP_TIER ? 2 : 1 };
   }
 
   // EXECUTION (§3.2): scales with development, so it pays nothing until the
@@ -164,7 +169,7 @@ export function passThroughEffect(gameState, boardTiles, tile, crosserId, fromPo
   // most expensive, riskiest archetype to commit to on the board ($1,670 to
   // draft into, vs $400-1,480 for everything else).
   if (archetype === 'EXECUTION') {
-    const amount = property.upgradeLevel * EXECUTION_TOLL_PER_LEVEL;
+    const amount = property.upgradeLevel * (EXECUTION_TOLL_PER_LEVEL + (tier - 1) * EXECUTION_TOLL_PER_TIER);
     return amount > 0 ? { type: 'TOLL', amount, ownerId: property.ownerId } : null;
   }
 
@@ -358,7 +363,28 @@ function highestRentTileOf(gameState, boardTiles, ownerId) {
 // from 53.2% to 40.3% and finished with 2.9 houses against the opponent's
 // 5.7. At $45 it recovers to 49.5% and builds 4.3 against 4.4. $60 and $75
 // were also swept and both overshot, dragging CONTROL down to 35-36%.
-export const EXECUTION_TOLL_PER_LEVEL = 45;
+// REDISTRIBUTED 2026-09-07: was a flat $45 at every tier, now $30 at tier 1
+// rising $15 per tier ($30 / $45 / $60). The average is deliberately about
+// what it was — this is not a buff, it is the same money moved onto the tier
+// ladder so the ladder means something. Measured balance-neutral: EXECUTION
+// 45.2% flat vs 46.3% redistributed at n=300, inside the noise band.
+export const EXECUTION_TOLL_PER_LEVEL = 30;
+
+// Extra dollars per house level for each tier ABOVE the first. PROTOTYPE
+// 2026-09-07, under measurement. Like CONTROL, EXECUTION's tier ladder was
+// decorative before this — its toll scales with upgradeLevel and nothing
+// else, so 2 owned tiles and 5 owned tiles produced an identical $90 toll.
+export const EXECUTION_TOLL_PER_TIER = 15;
+
+// The tier at which CONTROL's crossing effect becomes TWO steps instead of
+// one. PROTOTYPE 2026-09-07. 99 = never (today's behaviour).
+//
+// The rent side was tried first and measured useless: CONTROL's tiles carry
+// the LOWEST base rents on the board ($2-$8), so scaling its rent rider from
+// +50% to +100% by tier moved its win rate by 0.5 points (26.1% -> 26.6%).
+// Its whole value is the crossing effect, so that is where a tier reward has
+// to go if it is to be felt at all.
+export const CONTROL_EXTRA_STEP_TIER = 3;
 
 /**
  * Flat fee for crossing a utility owned by someone holding BOTH of them

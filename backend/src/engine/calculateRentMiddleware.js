@@ -68,8 +68,14 @@ export function calculateFinalRent(
   // cheap, frequent part; this is the rare, punishing part. Replaced the
   // "lose your next turn" version from V2, which was the harshest effect in
   // the document sitting on the cheapest archetype on the board ($440).
+  // Flat, NOT scaled by tier — tried and measured on 2026-09-07. Scaling this
+  // from +50% to +100% by tier moved CONTROL's win rate 26.1% -> 26.6%,
+  // because CONTROL's tiles carry the lowest base rents on the board ($2-$8)
+  // and a percentage of a small number is a small number. CONTROL's tier
+  // reward lives on its crossing effect instead (synergyEngine.js's
+  // CONTROL_EXTRA_STEP_TIER).
   if (archetypeOf(targetTile) === 'CONTROL' && synergyTier(gameState, boardTiles, ownerId, 'CONTROL') > 0) {
-    modifier += 0.5;
+    modifier += CONTROL_RENT_BONUS;
   }
 
   // INFRA (§2.3, wired 2026-09-04) — the SUPPORT archetype. Unlike every
@@ -102,6 +108,8 @@ const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 // anticipated for "a future archetype".
 export const INFRA_RENT_BONUS_BASE = 0.1;
 export const INFRA_RENT_BONUS_MAX = 0.25;
+
+export const CONTROL_RENT_BONUS = 0.5;
 
 export const MIN_RENT_MULTIPLIER = 0.25;
 export const MAX_RENT_MULTIPLIER = 3;

@@ -29,7 +29,8 @@ const GROUP_ARCHETYPE = {
 
 /** synergyEngine.js's own TIERS — tile-count thresholds, ascending. */
 const TIERS = {
-  CONTROL: [2, 4, 5],
+  CONTROL: [2, 3, 4], // was [2, 4, 5] until 2026-09-07 — see synergyEngine.js
+
   ECONOMY: [2, 4, 6],
   DENIAL: [2, 4, 6],
   EXECUTION: [2, 4, 5],
@@ -44,10 +45,10 @@ const TIERS = {
 // glow the "wrong" colour. Picked to stay legible against the board's dark
 // wood ground and against each group's own colour band.
 const ARCHETYPE_META = {
-  CONTROL: { label: 'Bình Dân', color: '#ef4444', effect: 'Đi ngang qua: đối thủ bị trừ 1 bước' },
+  CONTROL: { label: 'Bình Dân', color: '#ef4444', effect: 'Đi ngang qua: đối thủ bị trừ 1 bước (đủ 4 ô: 2 bước)' },
   ECONOMY: { label: 'Giao Thương', color: '#a855f7', effect: 'Đi ngang qua: nạn nhân bị đổi 1 lá bài (đủ 4 ô: + $30)' },
   DENIAL: { label: 'Thượng Lưu', color: '#f59e0b', effect: 'Đi ngang qua: lộ bài của nạn nhân (đủ 4 ô: + $30)' },
-  EXECUTION: { label: 'Tử Địa', color: '#3b82f6', effect: 'Đi ngang qua: phí quá cảnh $45 × cấp nhà' },
+  EXECUTION: { label: 'Tử Địa', color: '#3b82f6', effect: 'Đi ngang qua: phí quá cảnh $30-60 × cấp nhà' },
   MOBILITY: { label: 'Bến Xe', color: '#14b8a6', effect: 'Đi ngang qua: đẩy đối thủ 1 bước' },
   INFRA: { label: 'Hạ Tầng', color: '#94a3b8', effect: 'Hệ hạ tầng' },
 }
@@ -124,10 +125,10 @@ export function synergyByTileId(properties, boardTiles) {
 // drifted, and a panel that promises an effect the code never applies is
 // worse than no panel. Verified against engine/synergyEngine.js's own
 // passThroughEffect()/landingEffect() switch arms, arm by arm:
-//   - CONTROL   pass-through STEP_LOSS 1                     · landing: +50% rent
+//   - CONTROL   pass-through STEP_LOSS 1, or 2 at tier 3     · landing: +50% rent
 //   - ECONOMY   pass-through CARD_REROLL + $30/tier from t2  · landing: owner draws 2
 //   - DENIAL    pass-through REVEAL_NEXT_CARD + same fee     · landing: reveals hand 2 rounds
-//   - EXECUTION pass-through TOLL 45×level                   · landing: nothing extra
+//   - EXECUTION pass-through TOLL (30 + 15×(tier-1))×level   · landing: nothing extra
 //   - MOBILITY  pass-through NUDGE 1                         · landing: TELEPORT, tier 2 only
 //   - INFRA     pass-through TOLL $25, tier 2                · landing: +10%/+25% rent, ALL tiles
 //
@@ -141,7 +142,12 @@ export function synergyByTileId(properties, boardTiles) {
 
 const ARCHETYPE_EFFECTS = {
   CONTROL: {
+    // The step is where CONTROL's tier ladder pays off, NOT the rent line.
+    // Scaling the rent by tier was tried on 2026-09-07 and measured worthless
+    // — Bình Dân's tiles carry the board's lowest base rents ($2-$8), so a
+    // percentage of them is a rounding error either way.
     passThrough: 'Đối thủ đi ngang qua bị trừ 1 bước',
+    passThroughFee: 'Cấp 3 (đủ 4 ô): trừ 2 bước thay vì 1',
     landing: 'Đối thủ dừng lại: trả thêm 50% tiền thuê',
   },
   ECONOMY: {
@@ -165,7 +171,8 @@ const ARCHETYPE_EFFECTS = {
     // 2026-09-06, then $30 -> $45 on 2026-09-07 once ECONOMY and DENIAL
     // gained crossing fees and changed the cash economy EXECUTION builds out
     // of. See that file's own comment for both measurements.
-    passThrough: 'Đối thủ đi ngang qua trả phí $45 × cấp nhà',
+    passThrough: 'Đối thủ đi ngang qua trả phí $30 × cấp nhà',
+    passThroughFee: 'Phí tăng theo cấp Thế Lực: $30 → $45 → $60 mỗi cấp nhà',
     landing: null,
   },
   MOBILITY: {
