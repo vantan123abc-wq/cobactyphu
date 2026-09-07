@@ -4065,6 +4065,46 @@ test('a real move across a TOLL_BOOTH charges the crosser and pays the trap owne
   assert.deepEqual(gameState.activeTraps, [{ tileIndex: 3, type: 'TOLL_BOOTH', ownerId: 'gp-bob', expiresAtRound: 10 }], 'still standing');
 });
 
+test('an ECONOMY tier-2 crossing fee is settled for real — the crosser pays it and the owner receives it', () => {
+  // End-to-end companion to movementMiddleware's own unit test for the
+  // 2026-09-07 rider: resolveMovement returning the fee in `tolls` is only
+  // half the job, turnMachine still has to turn it into money that moves.
+  // The shared fixture board has no ECONOMY tiles at all (its filler is
+  // deliberately ungrouped), so purple is painted onto four fillers here.
+  const econBoard = board.map((t) =>
+    [11, 12, 13, 14].includes(t.position) ? createTile({ ...t, groupId: 'purple' }) : t
+  );
+  // Every buyable tile needs a Property row, not just the four owned ones —
+  // resolveTile throws on a buyable tile that has none, and ô15 is where this
+  // move lands.
+  const state = trapGameState({
+    properties: econBoard
+      .filter((t) => ['property', 'transport', 'utility'].includes(t.tileType))
+      .map((t) =>
+        createProperty({
+          id: `pr${t.position}`,
+          gameId: 'g1',
+          boardTileId: t.id,
+          ownerId: [11, 12, 13, 14].includes(t.position) ? 'gp-bob' : null,
+        })
+      ),
+  });
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_5', 'MOVE_6'], currentPosition: 10, currentBalance: 1500 };
+
+  // 10 -> 15 crosses all four of bob's purple tiles. 4 tiles = ECONOMY tier 2.
+  const { gameState, transactions } = transitionTurn(state, econBoard, {
+    type: 'PLAY_MOVEMENT_CARD',
+    payload: { cardId: 'MOVE_5' },
+  });
+
+  const alice = gameState.players.find((p) => p.id === 'gp-alice');
+  const bob = gameState.players.find((p) => p.id === 'gp-bob');
+  assert.equal(alice.currentPosition, 15, 'a crossing fee never stops the mover');
+  assert.equal(alice.currentBalance, 1500 - 120, '4 crossings x $30 at tier 2');
+  assert.equal(bob.currentBalance, 1500 + 120, 'paid to the tile owner, not the Bank');
+  assert.equal(transactions.filter((t) => t.transactionType === 'pass_through_toll').length, 4);
+});
+
 // ── Crossing your OWN trap (bug fix 2026-09-05) ────────────────────────────
 // trapEngine.js's own file header is explicit that a trap has "no safe at
 // home exemption" — its owner is not excluded from crossing it, unlike every

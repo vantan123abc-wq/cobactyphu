@@ -50,8 +50,12 @@ Do Thẻ Di Chuyển thường ngắn hơn Xúc xắc (3 bước vs 7 bước), 
 ### 2.4. 🟣🟠 GIAO THƯƠNG — "ECONOMY" (Giá trung bình: ~$1.000)
 - **Traffic:** Rất thường xuyên bị dẫm trúng do nằm ở khu vực đối thủ chọn "lesser evil" để hạ cánh.
 - **Mốc kích hoạt:** 2 Đất / 4 Đất / 6 Đất.
-- **🚶 Đi ngang qua:** Nạn nhân bỏ 1 lá bài -> Bạn rút 1 lá.
+- **🚶 Đi ngang qua:** Nạn nhân bỏ 1 lá bài -> Bạn rút 1 lá. **Từ mốc 4 Đất trở lên, thu thêm phí $30 mỗi cấp** (4 Đất: $30 · 6 Đất: $60).
 - **🎯 Dừng lại:** Trả Rent + Chủ đất rút ngay 2 lá bài.
+
+> **[BỔ SUNG 2026-09-07 — phí quá cảnh]** Giao Thương và Thượng Lưu là hai hệ duy nhất mà hiệu ứng đi-ngang-qua **không tốn của đối thủ đồng nào** (đổi bài / lộ bài). Đo trên engine thật: cả hai chỉ thắng ~28-30% trong khi bốn hệ còn lại ở 43-53%, và lý do nằm ở số nhà — đối thủ xây được 5.9-6.8 nhà khi đấu với hai hệ này, so với 3.3-4.7 khi đấu với các hệ khác. Không bị chặn dòng tiền, đối thủ cứ thế xây và vượt lên. **Đã thử tăng tiền thuê trước và bác bỏ bằng số liệu:** quét từ +0% đến +100% (tức gấp đôi tiền thuê) chỉ làm tỉ lệ thắng nhúc nhích trong sai số (30.6% → 31.2%), vì dừng lại đúng ô của một bộ 6 ô là biến cố quá hiếm. Đi ngang qua mới là biến cố thường xuyên, nên phí được đặt ở đó.
+>
+> **Vì sao chặn ở mốc 4 Đất chứ không phải 2:** Giao Thương + Thượng Lưu cộng lại là tím+cam+vàng+xanh lá = **12 trong tổng số 22 ô đất**. Nếu phí bắt đầu từ mốc 2 Đất, nó đánh thuế hơn nửa bàn cờ và người **mua dàn trải** mới là người thu được nhiều nhất, chứ không phải người chuyên một hệ. Đo thật: phí $20 tính từ mốc 2 kéo Giao Thương/Thượng Lưu lên ~50% nhưng đồng thời dìm Tử Địa từ 53.2% xuống **16.5%** và Bình Dân xuống 28.7%. Mốc 4 Đất là thứ người chơi dàn trải gần như không bao giờ gom đủ, còn người chuyên hệ thì luôn đạt — nên nó biến phí này thành **phần thưởng cho việc dốc sức vào một hệ**, không phải thuế toàn bàn.
 
 ---
 
@@ -59,14 +63,41 @@ Do Thẻ Di Chuyển thường ngắn hơn Xúc xắc (3 bước vs 7 bước), 
 
 ### 3.1. 🟡🟩 THƯỢNG LƯU — "DENIAL" (Giá đắt: ~$1.480)
 - **Mốc kích hoạt:** 2 Đất / 4 Đất / 6 Đất.
-- **🚶 Đi ngang qua:** Lá bài kế tiếp của nạn nhân bị lộ cho chủ đất thấy.
+- **🚶 Đi ngang qua:** Lá bài kế tiếp của nạn nhân bị lộ cho chủ đất thấy. **Từ mốc 4 Đất trở lên, thu thêm phí $30 mỗi cấp** (4 Đất: $30 · 6 Đất: $60) — xem giải thích ở §2.4.
 - **🎯 Dừng lại:** Lộ toàn bộ tay bài trong 2 lượt.
+
+> **[GHI CHÚ 2026-09-07 — hiệu ứng lộ bài đã hoạt động thật]** Comment trong `synergyEngine.js` từng cảnh báo hiệu ứng này "vô hiệu" vì server phát toàn bộ GameState cho mọi người. Cảnh báo đó **đã cũ**: `engine/stateRedaction.js` che bài theo từng người xem, `socketServer.js` gọi nó trước khi gửi, và `PlayersPanel.jsx` hiện lá bị lộ kèm nhãn 🔍. Đo riêng bằng thí nghiệm cách ly (hai bên đều Thượng Lưu, cùng cách mua đất, cùng dùng bẫy, chỉ khác một bên **dùng** thông tin còn bên kia cố tình bỏ qua): bên biết dùng thắng **57-60%**. Nghĩa là thông tin có giá trị thật — nhưng chỉ với người chịu để ý. Phí quá cảnh ở trên tồn tại để hệ này vẫn có giá trị nền cho người không tận dụng thông tin.
 
 ### 3.2. 🩵🔵 TỬ ĐỊA — "EXECUTION" (Giá đắt nhất: ~$1.670)
 - **Traffic:** Nằm cuối bàn cờ (Ô 28-35). Ít người qua lại nhất, hiệu quả trên vốn bị hụt nghiêm trọng. Phải bù đắp bằng sát thương cực cao.
 - **Mốc kích hoạt:** 2 Đất / 4 Đất / 5 Đất.
-- **🚶 Đi ngang qua:** Trả phí quá cảnh = **[Cấp độ nhà × $30]**. (Retuned 2026-09-06: $75 — vốn tăng gấp 3 lần từ V3 để cân bằng với Control — chưa từng được kiểm lại sau khi bẫy/Hạ Tầng/bộ bài thật ra đời. Mô phỏng Monte-Carlo trên engine thật cho thấy $75 khiến Tử Địa thắng 60%+; tắt hẳn phí lại khiến nó dưới 40% — chứng minh phí quá cảnh, không phải tiền thuê gốc, mới là đòn bẩy thật. $30 đưa tỉ lệ thắng về ~52-55%, tỉ lệ tổng tài sản đo được đúng 1.00 ở mẫu 600 trận.)
+- **🚶 Đi ngang qua:** Trả phí quá cảnh = **[Cấp độ nhà × $45]**.
+  - **[Nâng lại 2026-09-07: $30 → $45]** Không phải vì Tử Địa yếu sẵn, mà vì bàn cờ quanh nó vừa đổi. Khi Giao Thương/Thượng Lưu có phí quá cảnh (§2.4), cả bàn cờ có thêm một chỗ rò tiền — và Tử Địa là hệ chịu đựng kém nhất, vì phí của chính nó nhân theo **cấp nhà**, tức là nó bắt buộc phải xây được nhà thì mới có răng. Tiền trả phí cho người khác là tiền không xây được nhà. Đo thật: giữ nguyên $30 sau khi thêm phí mới, Tử Địa rơi từ 53.2% xuống **40.3%** và chỉ xây được 2.9 nhà so với 5.7 của đối thủ. Ở $45 nó về **49.5%** và xây 4.3 so với 4.4. Đã quét cả $60 và $75 — cả hai đều quá tay, kéo Bình Dân xuống 35-36%.
+  - *(Lịch sử: Retuned 2026-09-06: $75 — vốn tăng gấp 3 lần từ V3 để cân bằng với Control — chưa từng được kiểm lại sau khi bẫy/Hạ Tầng/bộ bài thật ra đời. Mô phỏng Monte-Carlo trên engine thật cho thấy $75 khiến Tử Địa thắng 60%+; tắt hẳn phí lại khiến nó dưới 40% — chứng minh phí quá cảnh, không phải tiền thuê gốc, mới là đòn bẩy thật. $30 đưa tỉ lệ thắng về ~52-55%, tỉ lệ tổng tài sản đo được đúng 1.00 ở mẫu 600 trận.)*
 - **🎯 Dừng lại:** Trả Rent đầy đủ + Hiệu ứng Tịch thu.
+
+---
+
+## 3.3. Kết Quả Cân Bằng Đo Được (2026-09-07)
+
+Mỗi hệ đóng vai người chơi A (chuyên một hệ) đấu người chơi B (mua dàn trải, không thiên vị hệ nào), **500 trận/hệ**, chạy trực tiếp trên `stateMachine/turnMachine.js` chứ không phải mô hình riêng.
+
+| Thế Lực | Trước | Sau | Tỉ lệ tài sản (sau) |
+|---|---|---|---|
+| Bình Dân (CONTROL) | 42.8% | 40.9% | 0.95 |
+| Giao Thương (ECONOMY) | **29.4%** | **45.2%** | 0.93 |
+| Thượng Lưu (DENIAL) | **28.2%** | **47.8%** | 0.89 |
+| Tử Địa (EXECUTION) | 53.2% | 49.5% | 0.95 |
+| Bến Xe (MOBILITY) | 47.8% | 46.0% | 1.05 |
+| Hạ Tầng (INFRA) | 50.9% | 44.6% | 0.94 |
+
+**Độ lệch giữa hệ mạnh nhất và yếu nhất: 25.0 điểm → 8.6 điểm.**
+
+⚠️ **Giới hạn của con số này, cần đọc kèm:**
+1. Toàn bộ đo ở **2 người chơi, bot đấu bot, không có thương lượng/trao đổi**. Ván thật 3-6 người có yếu tố chính trị bàn cờ mà mô phỏng này không mô tả được — Thượng Lưu (thông tin) nhiều khả năng mạnh hơn trong bối cảnh đó chứ không yếu hơn.
+2. Đối thủ B luôn là bot mua dàn trải. Cả 6 hệ đều dưới 50% một chút là chuyện bình thường: mua dàn trải vốn có lợi thế cấu trúc trong thế 1-đấu-1.
+3. **Bẫy là công cụ mạnh hơn mọi Thế Lực.** Đo riêng: chuyên gia biết đặt bẫy chủ động thắng 78-93% trước đối thủ không dùng bẫy. Khi cả hai bên đều dùng bẫy thì trở lại cân bằng. Nghĩa là người chơi bỏ qua cơ chế bẫy sẽ thua rất đậm — đây là vấn đề **hướng dẫn/UX**, không phải vấn đề cân bằng số.
+4. Bình Dân giờ là hệ thấp nhất (40.9%). Chưa đụng tới vì nó cũng là hệ rẻ nhất bàn cờ ($440) — "đầu tư ít, lợi ít" là hợp lý — nhưng đây là ứng viên cho lần cân bằng sau.
 
 ---
 

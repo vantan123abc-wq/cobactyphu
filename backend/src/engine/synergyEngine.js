@@ -156,9 +156,11 @@ export function passThroughEffect(gameState, boardTiles, tile, crosserId, fromPo
   // left EXECUTION under 40% — proof the toll, not EXECUTION's already-high
   // base rent, was the actual swing factor. A sweep from $0 to $75 in $5-15
   // steps (400-600 trials per point) crossed 50% win rate right around
-  // $25-30; $30 is the value used, landing EXECUTION at ~52-55% (net worth
-  // ratio measured at exactly 1.00 at n=600) — a deliberate, small edge
-  // rather than a razor's-edge 50%, since EXECUTION is also the single
+  // $25-30. $30 held that balance until ECONOMY and DENIAL gained crossing
+  // fees of their own a day later, which changed the cash economy EXECUTION
+  // has to build houses out of; it is $45 now, and EXECUTION_TOLL_PER_LEVEL's
+  // own comment carries that measurement. EXECUTION is deliberately left a
+  // small edge rather than a razor's-edge 50%, since it is also the single
   // most expensive, riskiest archetype to commit to on the board ($1,670 to
   // draft into, vs $400-1,480 for everything else).
   if (archetype === 'EXECUTION') {
@@ -177,8 +179,10 @@ export function passThroughEffect(gameState, boardTiles, tile, crosserId, fromPo
   // through CONTROL can have it shuffled away on the approach. That makes
   // ECONOMY the natural counter to JUMP, which is in turn the counter to
   // CONTROL — the loop the archetype matrix wanted and previously lacked.
+  //
+  // From tier 2 a commission rides along with the reroll — see specialistFee.
   if (archetype === 'ECONOMY') {
-    return { type: 'CARD_REROLL', ownerId: property.ownerId };
+    return withFee({ type: 'CARD_REROLL', ownerId: property.ownerId }, specialistFee(tier, ECONOMY_CROSSING_FEE));
   }
 
   // DENIAL (§3.1): information, not denial of action. "Lock a card type" was
@@ -186,13 +190,18 @@ export function passThroughEffect(gameState, boardTiles, tile, crosserId, fromPo
   // hand holding only that type leaves no legal move, in the one phase whose
   // action list has no always-legal fallback.
   //
-  // ⚠️ INERT TODAY. socketServer.js broadcasts the whole GameState to every
-  // player in the room with no per-recipient redaction, so every hand is
-  // already visible to everyone. This records the intent so redaction has
-  // something to read, and so the effect starts working the moment redaction
-  // lands, but it changes nothing a player can observe right now.
+  // LIVE since per-viewer redaction landed — engine/stateRedaction.js's
+  // maskPlayer reads the handRevealedTo entry this writes, socketServer.js
+  // masks per recipient on the way out, and PlayersPanel.jsx renders the
+  // revealed card with a 🔍 badge. (This comment used to warn the effect was
+  // inert because the whole GameState was broadcast unredacted; that is no
+  // longer true and the warning was stale.) The reveal is worth having:
+  // measured informed-vs-blind DENIAL, both otherwise identical, the side
+  // that acts on what it sees wins 57-60%. It is also worth nothing at all to
+  // a player who ignores it, which is why tier 2 adds a fee that collects
+  // whether or not anyone is paying attention — see specialistFee.
   if (archetype === 'DENIAL') {
-    return { type: 'REVEAL_NEXT_CARD', ownerId: property.ownerId };
+    return withFee({ type: 'REVEAL_NEXT_CARD', ownerId: property.ownerId }, specialistFee(tier, DENIAL_CROSSING_FEE));
   }
 
   // INFRA (§2.3, wired 2026-09-04). Until now this archetype had NO arm in
@@ -337,8 +346,19 @@ function highestRentTileOf(gameState, boardTiles, ownerId) {
 }
 
 // See passThroughEffect's own EXECUTION comment above for the 2026-09-06
-// retuning that landed on this number.
-export const EXECUTION_TOLL_PER_LEVEL = 30;
+// retuning that first landed on $30.
+//
+// RE-RAISED to $45 on 2026-09-07, and only because the board around it
+// changed. Giving ECONOMY and DENIAL a crossing fee (see specialistFee below)
+// put a new drain on everyone's cash, and EXECUTION is the archetype least
+// able to absorb one: its own toll scales with upgradeLevel, so it is the
+// only set that must BUILD before it threatens anything, and money spent
+// paying other people's crossing fees is money not spent on houses. Measured
+// directly — with the new fees in and the toll left at $30, EXECUTION fell
+// from 53.2% to 40.3% and finished with 2.9 houses against the opponent's
+// 5.7. At $45 it recovers to 49.5% and builds 4.3 against 4.4. $60 and $75
+// were also swept and both overshot, dragging CONTROL down to 35-36%.
+export const EXECUTION_TOLL_PER_LEVEL = 45;
 
 /**
  * Flat fee for crossing a utility owned by someone holding BOTH of them
@@ -349,3 +369,44 @@ export const EXECUTION_TOLL_PER_LEVEL = 30;
  * paying rent somewhere else entirely.
  */
 export const INFRA_CROSSING_FEE = 25;
+
+/**
+ * ECONOMY's and DENIAL's crossing fee (2026-09-07), $30 per tier ABOVE the
+ * first: $0 at tier 1, $30 at tier 2, $60 at tier 3.
+ *
+ * WHY THESE TWO ARCHETYPES GOT A CASH RIDER AT ALL. Both measured ~28-30%
+ * win rate against a generalist while the other four sat at 43-53%, and the
+ * portfolio diagnostics said why: the opponent finished with 5.9-6.8 houses
+ * against ECONOMY/DENIAL versus 3.3-4.7 against everyone else. These were the
+ * only two archetypes whose CROSSING effect (a card reroll, a card reveal)
+ * cost the crosser no money and no tempo, so an opponent walked past them for
+ * free and out-built them. Raising what they charge on LANDING was tried
+ * first and rejected on the data: a rent rider swept from +0% to +100% moved
+ * their win rate by less than noise (30.6% -> 31.2% for ECONOMY at DOUBLE
+ * rent), because landing on a 6-tile set is simply too rare an event to
+ * matter. Crossing is the frequent event, so crossing is where the fix went.
+ *
+ * WHY THE TIER-2 GATE IS THE DESIGN, NOT A KNOB. ECONOMY and DENIAL together
+ * are purple+orange+yellow+green — 12 of the board's 22 properties. A fee
+ * starting at tier 1 (2 tiles) therefore taxes more than half the board and
+ * is collected mostly by whoever buys BROADLY, which is the generalist, not
+ * the specialist. Measured: a tier-1-scaled $20 fee fixed ECONOMY and DENIAL
+ * (both to ~50%) while dropping EXECUTION from 53.2% to 16.5% and CONTROL to
+ * 28.7% — the opponent's scattered holdings were charging it constantly.
+ * Tier 2 is 4 tiles of one archetype: a broad buyer almost never assembles
+ * that, a specialist always does. The gate is what makes this a reward for
+ * committing rather than a board-wide tax.
+ *
+ * Sweep behind $30: the full six-archetype field was re-measured at $30/step
+ * paired with each candidate EXECUTION toll. $30 + EXECUTION $45 gave the
+ * tightest spread — 40.9%-49.5% at n=500, against 28.2%-53.2% before this
+ * change — with every net-worth ratio inside 0.89-1.05.
+ */
+const specialistFee = (tier, feePerTier) => (tier >= 2 ? (tier - 1) * feePerTier : 0);
+
+/** Attaches a cash rider to a card effect, omitting the field entirely when
+ * there is no fee — a `toll: 0` would otherwise change the shape of every
+ * below-tier-2 effect object for no reason. */
+const withFee = (effect, toll) => (toll > 0 ? { ...effect, toll } : effect);
+export const ECONOMY_CROSSING_FEE = 30;
+export const DENIAL_CROSSING_FEE = 30;

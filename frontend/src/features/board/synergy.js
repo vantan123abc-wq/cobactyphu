@@ -45,9 +45,9 @@ const TIERS = {
 // wood ground and against each group's own colour band.
 const ARCHETYPE_META = {
   CONTROL: { label: 'Bình Dân', color: '#ef4444', effect: 'Đi ngang qua: đối thủ bị trừ 1 bước' },
-  ECONOMY: { label: 'Giao Thương', color: '#a855f7', effect: 'Đi ngang qua: nạn nhân bị đổi 1 lá bài' },
-  DENIAL: { label: 'Thượng Lưu', color: '#f59e0b', effect: 'Đi ngang qua: lộ bài của nạn nhân' },
-  EXECUTION: { label: 'Tử Địa', color: '#3b82f6', effect: 'Đi ngang qua: phí quá cảnh $30 × cấp nhà' },
+  ECONOMY: { label: 'Giao Thương', color: '#a855f7', effect: 'Đi ngang qua: nạn nhân bị đổi 1 lá bài (đủ 4 ô: + $30)' },
+  DENIAL: { label: 'Thượng Lưu', color: '#f59e0b', effect: 'Đi ngang qua: lộ bài của nạn nhân (đủ 4 ô: + $30)' },
+  EXECUTION: { label: 'Tử Địa', color: '#3b82f6', effect: 'Đi ngang qua: phí quá cảnh $45 × cấp nhà' },
   MOBILITY: { label: 'Bến Xe', color: '#14b8a6', effect: 'Đi ngang qua: đẩy đối thủ 1 bước' },
   INFRA: { label: 'Hạ Tầng', color: '#94a3b8', effect: 'Hệ hạ tầng' },
 }
@@ -124,12 +124,12 @@ export function synergyByTileId(properties, boardTiles) {
 // drifted, and a panel that promises an effect the code never applies is
 // worse than no panel. Verified against engine/synergyEngine.js's own
 // passThroughEffect()/landingEffect() switch arms, arm by arm:
-//   - CONTROL   pass-through STEP_LOSS 1        · landing: +50% rent
-//   - ECONOMY   pass-through CARD_REROLL        · landing: owner draws 2
-//   - DENIAL    pass-through REVEAL_NEXT_CARD   · landing: reveals hand 2 rounds
-//   - EXECUTION pass-through TOLL 75×level      · landing: nothing extra
-//   - MOBILITY  pass-through NUDGE 1            · landing: TELEPORT, tier 2 only
-//   - INFRA     pass-through TOLL $25, tier 2   · landing: +10%/+25% rent, ALL tiles
+//   - CONTROL   pass-through STEP_LOSS 1                     · landing: +50% rent
+//   - ECONOMY   pass-through CARD_REROLL + $30/tier from t2  · landing: owner draws 2
+//   - DENIAL    pass-through REVEAL_NEXT_CARD + same fee     · landing: reveals hand 2 rounds
+//   - EXECUTION pass-through TOLL 45×level                   · landing: nothing extra
+//   - MOBILITY  pass-through NUDGE 1                         · landing: TELEPORT, tier 2 only
+//   - INFRA     pass-through TOLL $25, tier 2                · landing: +10%/+25% rent, ALL tiles
 //
 // CORRECTION 2026-09-04: CONTROL's landing effect was previously listed here
 // as "nothing extra" because only landingEffect() had been checked. Rent
@@ -145,18 +145,27 @@ const ARCHETYPE_EFFECTS = {
     landing: 'Đối thủ dừng lại: trả thêm 50% tiền thuê',
   },
   ECONOMY: {
+    // The fee half is gated at tier 2 and NOT at tier 1, deliberately —
+    // ECONOMY and DENIAL are 12 of the board's 22 properties between them, so
+    // a tier-1 fee would tax over half the board and reward buying broadly
+    // instead of committing. synergyEngine.js's specialistFee carries the
+    // measurements. `feeFromTier` drives the panel's own "chỉ từ cấp 2" note.
     passThrough: 'Đối thủ đi ngang qua phải bỏ 1 lá bài và rút lá khác',
+    passThroughFee: 'Từ cấp 2: thu thêm $30 mỗi cấp (đủ 4 ô: $30 · đủ 6 ô: $60)',
     landing: 'Đối thủ dừng lại: bạn rút ngay 2 lá bài',
   },
   DENIAL: {
     passThrough: 'Đối thủ đi ngang qua bị lộ 1 lá bài cho bạn',
+    passThroughFee: 'Từ cấp 2: thu thêm $30 mỗi cấp (đủ 4 ô: $30 · đủ 6 ô: $60)',
     landing: 'Đối thủ dừng lại: lộ toàn bộ tay bài trong 2 vòng',
   },
   EXECUTION: {
-    // Retuned 2026-09-06 alongside the backend constant this mirrors
-    // (engine/synergyEngine.js's EXECUTION_TOLL_PER_LEVEL) — see that
-    // file's own comment for the Monte-Carlo methodology behind $30.
-    passThrough: 'Đối thủ đi ngang qua trả phí $30 × cấp nhà',
+    // Retuned twice alongside the backend constant this mirrors
+    // (engine/synergyEngine.js's EXECUTION_TOLL_PER_LEVEL): $75 -> $30 on
+    // 2026-09-06, then $30 -> $45 on 2026-09-07 once ECONOMY and DENIAL
+    // gained crossing fees and changed the cash economy EXECUTION builds out
+    // of. See that file's own comment for both measurements.
+    passThrough: 'Đối thủ đi ngang qua trả phí $45 × cấp nhà',
     landing: null,
   },
   MOBILITY: {

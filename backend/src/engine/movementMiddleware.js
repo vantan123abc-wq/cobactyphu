@@ -147,6 +147,13 @@ export function resolveMovement(gameState, playerId, steps, direction = 1, board
       // handlePlayMovementCard owns every mutation, the same split the tolls
       // above already use for money.
       cardEffects.push({ ...effect, tileId: tile.id });
+      // ECONOMY/DENIAL carry a cash rider alongside the card effect (2026-09-07).
+      // Both archetypes' crossing effects used to cost the victim nothing at
+      // all, which is the measured reason they trailed the field — see the
+      // constants' own comments in synergyEngine.js.
+      if (effect.toll > 0) {
+        tolls.push({ ownerId: effect.ownerId, amount: effect.toll, tileId: tile.id });
+      }
     }
   }
 

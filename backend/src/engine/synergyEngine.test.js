@@ -109,7 +109,7 @@ test('passThroughEffect: EXECUTION charges per development level, nothing while 
   const built = stateWith([own(33, 'p2', { upgradeLevel: 3 }), own(35, 'p2')]);
   assert.deepStrictEqual(passThroughEffect(built, BOARD, tile33, 'p1'), {
     type: 'TOLL',
-    amount: 90, // 3 levels x $30 (retuned 2026-09-06, see EXECUTION_TOLL_PER_LEVEL's own comment)
+    amount: 135, // 3 levels x $45 (re-raised 2026-09-07, see EXECUTION_TOLL_PER_LEVEL's own comment)
     ownerId: 'p2',
   });
 });
@@ -126,6 +126,37 @@ test('ECONOMY pass-through is a REROLL, not a confiscation — the mechanic that
   const board = [T(10, 'purple'), T(12, 'purple'), T(13, 'purple')];
   const state = { ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties: [own(10, 'p2'), own(12, 'p2')] };
   assert.deepStrictEqual(passThroughEffect(state, board, board[0], 'p1'), { type: 'CARD_REROLL', ownerId: 'p2' });
+});
+
+test('ECONOMY/DENIAL charge NOTHING at tier 1 — the gate that keeps this a specialist reward, not a board-wide tax', () => {
+  // 2 tiles is tier 1. Deliberately asserted as an absent field rather than
+  // toll: 0, because a broad buyer picking up two purples must not start
+  // charging a fee on what is (with orange, yellow and green) more than half
+  // the board's properties. See specialistFee's own comment for the measured
+  // 16.5% EXECUTION collapse that a tier-1 fee caused.
+  const board = [T(10, 'purple'), T(12, 'purple'), T(19, 'yellow'), T(21, 'yellow')];
+  const economy = { ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties: [own(10, 'p2'), own(12, 'p2')] };
+  assert.strictEqual(passThroughEffect(economy, board, board[0], 'p1').toll, undefined);
+
+  const denial = { ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties: [own(19, 'p2'), own(21, 'p2')] };
+  assert.strictEqual(passThroughEffect(denial, board, board[2], 'p1').toll, undefined);
+});
+
+test('ECONOMY/DENIAL ride a $30-per-tier-above-first fee alongside the card effect from tier 2', () => {
+  const board = [T(10, 'purple'), T(12, 'purple'), T(13, 'purple'), T(15, 'orange'), T(16, 'orange'), T(17, 'orange')];
+  const four = [own(10, 'p2'), own(12, 'p2'), own(13, 'p2'), own(15, 'p2')];
+  assert.deepStrictEqual(
+    passThroughEffect({ ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties: four }, board, board[0], 'p1'),
+    { type: 'CARD_REROLL', ownerId: 'p2', toll: 30 },
+    'tier 2 (4 tiles) — the card effect is unchanged, the fee rides alongside it'
+  );
+
+  const six = [...four, own(16, 'p2'), own(17, 'p2')];
+  assert.deepStrictEqual(
+    passThroughEffect({ ruleset: 'ASYMMETRIC', players: [{ id: 'p1' }, { id: 'p2' }], properties: six }, board, board[0], 'p1'),
+    { type: 'CARD_REROLL', ownerId: 'p2', toll: 60 },
+    'tier 3 (all 6) — (3 - 1) x $30'
+  );
 });
 
 test('ECONOMY landing lets the owner draw 2; DENIAL landing records a 2-round reveal', () => {

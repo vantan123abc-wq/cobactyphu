@@ -158,6 +158,13 @@ export default function SynergyPanel() {
                         <em className={styles.effectGate}> (cần mốc {row.thresholds[row.effects.passThroughTier - 1]} ô)</em>
                       )}
                     </span>
+                    {/* ECONOMY/DENIAL's tier-2 cash rider — its own line rather
+                        than an inline gate note, because unlike the gates above
+                        it is a SECOND effect stacked on the same crossing, not a
+                        condition on the one already printed. */}
+                    {row.effects.passThroughFee && (
+                      <span className={styles.effectLine}>💰 {row.effects.passThroughFee}</span>
+                    )}
                     {row.effects.landing && (
                       <span className={styles.effectLine}>
                         🎯 {row.effects.landing}

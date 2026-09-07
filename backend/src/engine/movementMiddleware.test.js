@@ -85,10 +85,28 @@ test('EXECUTION tolls are returned per crossed tile, not aggregated, and never f
   assert.strictEqual(r.newPosition, 31);
   assert.deepStrictEqual(
     r.tolls.map((t) => t.amount),
-    [60, 30], // 2 levels x $30 and 1 level x $30 (retuned 2026-09-06, see EXECUTION_TOLL_PER_LEVEL's own comment)
+    [90, 45], // 2 levels x $45 and 1 level x $45 (re-raised 2026-09-07, see EXECUTION_TOLL_PER_LEVEL's own comment)
     'ô28 (2 levels) and ô29 (1 level); ô31 is the landing tile and is billed by resolveLanding instead'
   );
   assert.ok(r.tolls.every((t) => t.ownerId === 'p2'));
+});
+
+test('an ECONOMY crossing fee reaches the tolls list AND still fires its card effect', () => {
+  // Regression for the 2026-09-07 rider: ECONOMY/DENIAL return a card effect
+  // with a `toll` field attached, which the walk loop has to split into BOTH
+  // lists. Billing it as only one or the other is the failure mode — the fee
+  // silently vanishing, or the reroll being replaced by it.
+  const board = Array.from({ length: 36 }, (_, i) => {
+    const groups = { 10: 'purple', 12: 'purple', 13: 'purple', 15: 'orange' };
+    return T(i, groups[i] ?? null, groups[i] ? 'property' : 'free_parking');
+  });
+  const state = asym(9, [10, 12, 13, 15].map((p) => own(p, 'p2'))); // 4 tiles = ECONOMY tier 2
+  // 9 -> 14 crosses ô10, ô11, ô12, ô13 and lands on ô14; ô15 is never reached.
+  const r = resolveMovement(state, 'p1', 5, 1, 36, { boardTiles: board });
+  assert.strictEqual(r.newPosition, 14);
+  assert.deepStrictEqual(r.tolls.map((t) => t.amount), [30, 30, 30], 'one $30 tier-2 fee per crossed ECONOMY tile');
+  assert.ok(r.tolls.every((t) => t.ownerId === 'p2'));
+  assert.strictEqual(r.cardEffects.length, 3, 'the reroll still fires on every crossing, the fee rides alongside it');
 });
 
 test('a JUMP card crosses everything immune — no toll, no step loss', () => {
