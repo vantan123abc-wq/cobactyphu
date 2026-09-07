@@ -59,6 +59,20 @@ export const DRAFT_ROUNDS = 2;
 export const DRAFT_OFFER_SIZE = 4;
 
 /**
+ * How many tiles a round offers, by seat count.
+ *
+ * One offer is shared by every picker in a round, and (as of 2026-09-07) a
+ * tile leaves that offer the moment someone drafts it. At the old fixed 4,
+ * that made a 4-player round degenerate: 4 choices, then 3, then 2, then the
+ * last player has exactly one "choice". Seats + 2 keeps a real decision for
+ * everyone — and returns exactly 4 at two players, so the 2-player draft is
+ * bit-for-bit what it was.
+ */
+export function draftOfferSizeFor(playerCount) {
+  return Math.max(DRAFT_OFFER_SIZE, playerCount + 2);
+}
+
+/**
  * What the draft may offer. Stations and utilities are INCLUDED as of
  * 2026-09-07, reversing ASYMMETRIC_MODE_SPEC.md §1.4's "CẤM Draft Bến Xe và
  * Công Ty".
@@ -142,7 +156,7 @@ export function initialDraftState(playerIdsInTurnOrder, boardTiles, randomSource
     round: 1,
     pickOrder: buildSnakeOrder(playerIdsInTurnOrder, 1),
     currentPickIndex: 0,
-    availableTileIds: offerDraftTiles(boardTiles, new Set(), randomSource),
+    availableTileIds: offerDraftTiles(boardTiles, new Set(), randomSource, draftOfferSizeFor(playerIdsInTurnOrder.length)),
   };
 }
 
@@ -181,7 +195,7 @@ export function advanceDraftState(draftState, playerIdsInTurnOrder, boardTiles, 
       round: nextRound,
       pickOrder: buildSnakeOrder(playerIdsInTurnOrder, nextRound),
       currentPickIndex: 0,
-      availableTileIds: offerDraftTiles(boardTiles, ownedTileIds, randomSource),
+      availableTileIds: offerDraftTiles(boardTiles, ownedTileIds, randomSource, draftOfferSizeFor(playerIdsInTurnOrder.length)),
     },
   };
 }

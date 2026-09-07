@@ -34,9 +34,11 @@ import styles from './DraftPhase.module.css'
 //   out-of-order DRAFT_PICK server-side — this component's own isMyPick
 //   check below is a UI convenience (disable the wrong buttons), not the
 //   real enforcement.
-// - engine/draftPhase.js only ever offers `property`-type tiles (never
-//   transport/utility) — nothing here needs to special-case a station or
-//   utility card, the offer array simply never contains one.
+// - engine/draftPhase.js offers stations and utilities alongside property
+//   tiles as of 2026-09-07 (it used to exclude them; see DRAFTABLE_TILE_TYPES
+//   for why that was reversed). No special-casing was needed here — the tile
+//   card already renders a 🚌/⚡ icon and a price for them — but the offer
+//   array really can contain one now, which it never could before.
 export default function DraftPhase() {
   const { user, session } = useAuth()
   const roomId = useGameStore((s) => s.roomState?.roomId)

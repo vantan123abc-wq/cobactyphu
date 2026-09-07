@@ -16,6 +16,7 @@ import { createGameState, createPlayerGameState } from '../domain/gameState.js';
 import { EventChoiceError } from '../engine/eventResolver.js';
 import { InvalidBidError, startAuction, placeBid } from '../engine/auction.js';
 import { FINAL_PHASE_TRIGGER_ROUND, FINAL_PHASE_DURATION_ROUNDS } from './gameEndMachine.js';
+import { initialDraftState } from '../engine/draftPhase.js';
 
 // movement.js only accepts the two locked board sizes (36/44) — a real
 // 36-tile board is built here rather than a handful of ad hoc fixtures,
@@ -3701,7 +3702,7 @@ function draftGameState(overrides = {}) {
       round: 1,
       pickOrder: ['gp-alice', 'gp-bob'],
       currentPickIndex: 0,
-      availableTileIds: ['t1', 't10', 't11', 't12'],
+      availableTileIds: ['t1', 't11', 't12', 't13'],
     },
     ...overrides,
   });
@@ -3772,7 +3773,7 @@ test('round 1 completing rolls into round 2: fresh offer excluding round-1 picks
   }).gameState;
   const afterBob = transitionTurn(afterAlice, board, {
     type: 'DRAFT_PICK',
-    payload: { tileId: 't10' },
+    payload: { tileId: 't11' },
   }).gameState;
 
   assert.equal(afterBob.phase, 'DRAFTING_ACTIVE', 'round 2 still has picks left');
@@ -3780,17 +3781,103 @@ test('round 1 completing rolls into round 2: fresh offer excluding round-1 picks
   assert.equal(afterBob.draftState.currentPickIndex, 0);
   assert.deepEqual(afterBob.draftState.pickOrder, ['gp-bob', 'gp-alice'], 'snake order reverses for round 2');
   assert.ok(!afterBob.draftState.availableTileIds.includes('t1'), 't1 was drafted in round 1');
-  assert.ok(!afterBob.draftState.availableTileIds.includes('t10'), 't10 was drafted in round 1');
+  assert.ok(!afterBob.draftState.availableTileIds.includes('t11'), 't11 was drafted in round 1');
   assert.ok(
-    afterBob.draftState.availableTileIds.every((id) => id !== 't1' && id !== 't10'),
+    afterBob.draftState.availableTileIds.every((id) => id !== 't1' && id !== 't11'),
     'the offer is drawn from what is still unowned; the station (t2) and utility (t6) are eligible as of 2026-09-07'
   );
+});
+
+test('DRAFT_PICK refuses a tile another player already drafted THIS round — no silent ownership steal', () => {
+  // Regression for a live bug found on 2026-09-07 by actually playing out a
+  // 4-player draft. One offer is shared by every picker in a round, and
+  // handleDraftAction only checked that the tile was IN that offer, never
+  // that it was still unowned — so the second player to name a tile
+  // overwrote `ownerId`, and the first picker was left having paid full
+  // price for nothing. Reproduced exactly: A pays $60 for t1, B picks t1, t1
+  // belongs to B, A holds zero tiles and is $60 poorer. Any seat count could
+  // hit it; four players sharing a four-tile offer hit it almost every game.
+  const state = draftGameState();
+  const afterAlice = transitionTurn(state, board, { type: 'DRAFT_PICK', payload: { tileId: 't1' } }).gameState;
+  assert.equal(afterAlice.properties.find((p) => p.boardTileId === 't1').ownerId, 'gp-alice');
+
+  // The offer Bob sees no longer contains it, which is the first line of
+  // defence — a client cannot even render the stale option.
+  assert.ok(!afterAlice.draftState.availableTileIds.includes('t1'), 'a drafted tile leaves the round\'s offer immediately');
+
+  // And naming it anyway (a stale client, a replayed request) is refused
+  // rather than honoured.
+  const bobBalanceBefore = afterAlice.players.find((p) => p.id === 'gp-bob').currentBalance;
+  assert.throws(
+    () => transitionTurn(afterAlice, board, { type: 'DRAFT_PICK', payload: { tileId: 't1' } }),
+    (err) => err instanceof InvalidDraftActionError && err.reason === 'TILE_NOT_AVAILABLE'
+  );
+  assert.equal(afterAlice.properties.find((p) => p.boardTileId === 't1').ownerId, 'gp-alice', 'still Alice\'s');
+  assert.equal(afterAlice.players.find((p) => p.id === 'gp-bob').currentBalance, bobBalanceBefore, 'and Bob paid nothing');
+});
+
+test('a FOUR-player draft really runs four snake rounds end to end and hands off to a live turn', () => {
+  // The 4-player path end to end, driven through the real transitionTurn with
+  // the real initialDraftState/advanceDraftState — not a hand-built
+  // draftState. This is the configuration draftRoundsFor() was added for, and
+  // the one nothing covered: every draft test before this seated exactly two
+  // players, so "round 2 ends the draft" was indistinguishable from "the last
+  // round ends the draft".
+  const seats = ['gp-alice', 'gp-bob', 'gp-carol', 'gp-dave'];
+  const players = [
+    createPlayerGameState({ id: 'gp-bank', gameId: 'g1', isBank: true, currentBalance: 20000 }),
+    ...seats.map((id, i) =>
+      createPlayerGameState({ id, gameId: 'g1', playerId: id.slice(3), turnOrder: i, currentBalance: 1500, currentPosition: 0 })
+    ),
+  ];
+  const properties = board
+    .filter((t) => ['property', 'transport', 'utility'].includes(t.tileType))
+    .map((t) => createProperty({ id: `pr${t.position}`, gameId: 'g1', boardTileId: t.id }));
+
+  let state = baseGameState({
+    ruleset: 'ASYMMETRIC',
+    phase: 'DRAFTING_ACTIVE',
+    players,
+    properties,
+    draftState: initialDraftState(seats, board, () => 0.5),
+  });
+
+  const roundsSeen = [];
+  let picks = 0;
+  while (state.phase === 'DRAFTING_ACTIVE' && picks < 50) {
+    roundsSeen.push({ round: state.draftState.round, picker: state.draftState.pickOrder[state.draftState.currentPickIndex] });
+    state = transitionTurn(state, board, {
+      type: 'DRAFT_PICK',
+      payload: { tileId: state.draftState.availableTileIds[0] },
+    }).gameState;
+    picks++;
+  }
+
+  assert.equal(picks, 16, 'four seats x four rounds — the 2-round default would have stopped at 8');
+  assert.deepEqual([...new Set(roundsSeen.map((r) => r.round))], [1, 2, 3, 4]);
+
+  // Snake order: odd rounds ascending, even rounds reversed, every round.
+  const pickersIn = (round) => roundsSeen.filter((r) => r.round === round).map((r) => r.picker);
+  assert.deepEqual(pickersIn(1), seats, 'round 1 ascending');
+  assert.deepEqual(pickersIn(2), [...seats].reverse(), 'round 2 reversed');
+  assert.deepEqual(pickersIn(3), seats, 'round 3 ascending again');
+  assert.deepEqual(pickersIn(4), [...seats].reverse(), 'round 4 reversed');
+
+  // Handoff into a real turn, and everyone actually holds what they drafted.
+  assert.equal(state.phase, 'TURN_START');
+  assert.equal(state.draftState, null);
+  assert.equal(getCurrentPlayer(state).id, 'gp-alice', 'play begins at seat 0 regardless of who picked last');
+  for (const id of seats) {
+    assert.equal(state.properties.filter((p) => p.ownerId === id).length, 4, `${id} drafted 4 tiles`);
+    const me = state.players.find((p) => p.id === id);
+    assert.ok(me.currentBalance > 0 && me.currentBalance < 1500, `${id} paid for them`);
+  }
 });
 
 test('round 2 completing clears draftState and hands off to a real TURN_START at seat 0', () => {
   let state = draftGameState();
   state = transitionTurn(state, board, { type: 'DRAFT_PICK', payload: { tileId: 't1' } }).gameState;
-  state = transitionTurn(state, board, { type: 'DRAFT_PICK', payload: { tileId: 't10' } }).gameState;
+  state = transitionTurn(state, board, { type: 'DRAFT_PICK', payload: { tileId: 't11' } }).gameState;
   // Round 2, snake-reversed: Bob picks first this time.
   assert.equal(getCurrentPlayer(state).id, 'gp-bob');
   state = transitionTurn(state, board, {

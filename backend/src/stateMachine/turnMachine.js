@@ -1762,6 +1762,20 @@ function handleDraftAction(gameState, boardTiles, action, now) {
       throw new InvalidDraftActionError('UNKNOWN_TILE', `handleDraftAction: tile '${tileId}' not found on this board`);
     }
 
+    // Every picker in a round draws from the SAME offer (it is only
+    // regenerated when the round ends), so without this guard the second
+    // player to name a tile simply overwrote `ownerId` — the first picker
+    // paid full price and silently ended up owning nothing. Reproduced end to
+    // end before the fix: A pays $100 for t1, B picks t1, t1 belongs to B and
+    // A holds zero tiles. Possible at any seat count, near-certain at four,
+    // where four pickers share one four-tile offer.
+    if (property.ownerId) {
+      throw new InvalidDraftActionError(
+        'TILE_ALREADY_TAKEN',
+        `handleDraftAction: '${tileId}' was already drafted this round by another player`
+      );
+    }
+
     const { amount, transactionType } = calculatePurchase(tile);
     if (picker.currentBalance < amount) {
       throw new InvalidDraftActionError(
@@ -1792,7 +1806,18 @@ function handleDraftAction(gameState, boardTiles, action, now) {
       p.id === property.id ? { ...p, ownerId: picker.id, acquiredAt: now, acquiredAtRound: null } : p
     );
 
-    stateAfterPurchase = { ...afterPayment, properties };
+    // Drop it from the offer the remaining pickers in THIS round can see, so
+    // the guard above is something a client can never innocently trip: a
+    // drafted tile stops being displayed the moment it is taken, instead of
+    // sitting in the list looking available until the round ends.
+    stateAfterPurchase = {
+      ...afterPayment,
+      properties,
+      draftState: {
+        ...afterPayment.draftState,
+        availableTileIds: afterPayment.draftState.availableTileIds.filter((id) => id !== tileId),
+      },
+    };
     transactions = [transaction];
   }
   // DRAFT_PASS: no purchase — falls through to the shared advance step below.
