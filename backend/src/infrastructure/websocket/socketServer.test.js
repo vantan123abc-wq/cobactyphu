@@ -625,7 +625,7 @@ test('an UNEXPECTED error in a player action is logged with its stack and contex
   );
 
   assert.equal(socket._emitted[0].event, 'S2C_ACTION_REJECTED');
-  assert.equal(socket._emitted[0].payload.errorCode, 'MALFORMED_PAYLOAD');
+  assert.equal(socket._emitted[0].payload.errorCode, 'INTERNAL_ERROR', 'a crash is a server fault, not a bad request');
   assert.equal(logged.length, 1, 'exactly one log line — the crash');
   assert.match(logged[0], /PLACE_BID/, 'names the action');
   assert.match(logged[0], /room-1/, 'names the room');
@@ -777,6 +777,9 @@ test('C2S_GAME_ACTION: PLACE_TRAP in an ASYMMETRIC match succeeds through the so
   const roomRepository = fakeGameRoomRepository({ 'room-1': buildRedactionRoom() });
   const state = buildRedactionGameState();
   state.phase = 'PLAYING_CARD';
+  state.properties = buildSmallBoard()
+    .filter((t) => ['property', 'transport', 'utility'].includes(t.tileType))
+    .map((t) => createProperty({ id: `pr${t.position}`, gameId: 'g1', boardTileId: t.id }));
   setGameState('room-1', state);
   const io = fakeIo();
   const socket = mockSocket();
@@ -805,6 +808,9 @@ test('C2S_GAME_ACTION: a REFUSED trap comes back as its real reason, not a gener
   const state = buildRedactionGameState();
   state.phase = 'PLAYING_CARD';
   state.activeTraps = [{ tileIndex: 12, type: 'ROADBLOCK', ownerId: 'gp-bob', expiresAtRound: 99 }];
+  state.properties = buildSmallBoard()
+    .filter((t) => ['property', 'transport', 'utility'].includes(t.tileType))
+    .map((t) => createProperty({ id: `pr${t.position}`, gameId: 'g1', boardTileId: t.id }));
   setGameState('room-1', state);
   const io = fakeIo();
   const socket = mockSocket();
@@ -822,6 +828,116 @@ test('C2S_GAME_ACTION: a REFUSED trap comes back as its real reason, not a gener
   assert.ok(rejected, 'stacking a trap on an occupied tile must be refused');
   assert.equal(rejected.payload.errorCode, 'TILE_OCCUPIED', 'the player is told WHY, not just that something broke');
 });
+// ── ASYMMETRIC's core actions, through the socket (2026-09-11) ────────────
+// A coverage audit found 14 action types that turnMachine.test.js exercises
+// thoroughly and that nothing had ever SENT as a real C2S_GAME_ACTION —
+// PLAY_MOVEMENT_CARD and DRAFT_PICK among them. That gap is not academic: it
+// is precisely where both of this mode's live bugs hid. MOVEMENT_CARDS was
+// once referenced in serverGeneratedFields without being imported, crashing
+// every movement-card play from a real client while the engine tests stayed
+// green; and the draft's ownership-steal bug needed a second player picking
+// through a socket before it would show itself.
+test('C2S_GAME_ACTION: PLAY_MOVEMENT_CARD moves the player through the socket layer', async () => {
+  const roomRepository = fakeGameRoomRepository({ 'room-1': buildRedactionRoom() });
+  const state = buildRedactionGameState();
+  state.phase = 'PLAYING_CARD';
+  state.players[1] = { ...state.players[1], movementHand: ['JUMP_2'], currentPosition: 0 };
+  state.properties = buildSmallBoard()
+    .filter((t) => ['property', 'transport', 'utility'].includes(t.tileType))
+    .map((t) => createProperty({ id: `pr${t.position}`, gameId: 'g1', boardTileId: t.id }));
+  setGameState('room-1', state);
+  const io = fakeIo();
+  const socket = mockSocket();
+  socket.user = { id: 'user-alice' };
+
+  handleGameAction(io, socket, roomRepository, undefined, { small: buildSmallBoard() });
+  await socket._trigger('C2S_GAME_ACTION', {
+    roomId: 'room-1',
+    actionType: 'PLAY_MOVEMENT_CARD',
+    payload: { cardId: 'JUMP_2' },
+    clientActionId: 'card-1',
+  });
+
+  const rejected = socket._emitted.find((e) => e.event === 'S2C_ACTION_REJECTED');
+  assert.equal(rejected, undefined, `rejected: ${JSON.stringify(rejected?.payload)}`);
+  const alice = getGameState('room-1').players.find((pl) => pl.id === 'gp-alice');
+  assert.equal(alice.currentPosition, 2, 'JUMP_2 is a fixed 2 steps forward');
+  assert.ok(!alice.movementHand.includes('JUMP_2'), 'the card is spent');
+});
+
+test('C2S_GAME_ACTION: the RANDOM movement card is rolled by the SERVER, not by the client', async () => {
+  // serverGeneratedFields' PLAY_MOVEMENT_CARD branch — the one that needs
+  // MOVEMENT_CARDS imported, and the only branch where a client could
+  // otherwise name its own step count.
+  const roomRepository = fakeGameRoomRepository({ 'room-1': buildRedactionRoom() });
+  const state = buildRedactionGameState();
+  state.phase = 'PLAYING_CARD';
+  state.players[1] = { ...state.players[1], movementHand: ['MOVE_RANDOM_2_12'], currentPosition: 0 };
+  state.properties = buildSmallBoard()
+    .filter((t) => ['property', 'transport', 'utility'].includes(t.tileType))
+    .map((t) => createProperty({ id: `pr${t.position}`, gameId: 'g1', boardTileId: t.id }));
+  setGameState('room-1', state);
+  const io = fakeIo();
+  const socket = mockSocket();
+  socket.user = { id: 'user-alice' };
+
+  handleGameAction(io, socket, roomRepository, undefined, { small: buildSmallBoard() }, () => 0.5);
+  await socket._trigger('C2S_GAME_ACTION', {
+    roomId: 'room-1',
+    actionType: 'PLAY_MOVEMENT_CARD',
+    payload: { cardId: 'MOVE_RANDOM_2_12', cardRoll: 12 }, // a client TRYING to name its own roll
+    clientActionId: 'card-2',
+  });
+
+  const rejected = socket._emitted.find((e) => e.event === 'S2C_ACTION_REJECTED');
+  assert.equal(rejected, undefined, `rejected: ${JSON.stringify(rejected?.payload)}`);
+  const alice = getGameState('room-1').players.find((pl) => pl.id === 'gp-alice');
+  assert.notEqual(alice.currentPosition, 12, "the client's own cardRoll must not be honoured");
+  assert.ok(alice.currentPosition >= 2 && alice.currentPosition <= 12, "landed inside the card's real 2-12 range");
+});
+
+test('C2S_GAME_ACTION: DRAFT_PICK/DRAFT_PASS work through the socket, and an already-taken tile is refused', async () => {
+  const roomRepository = fakeGameRoomRepository({ 'room-1': buildRedactionRoom() });
+  const board = buildSmallBoard();
+  const state = buildRedactionGameState();
+  state.phase = 'DRAFTING_ACTIVE';
+  state.draftState = { round: 1, pickOrder: ['gp-alice', 'gp-bob'], currentPickIndex: 0, availableTileIds: ['t2', 't3', 't5', 't7'] };
+  state.properties = board
+    .filter((t) => ['property', 'transport', 'utility'].includes(t.tileType))
+    .map((t) => createProperty({ id: `pr${t.position}`, gameId: 'g1', boardTileId: t.id }));
+  setGameState('room-1', state);
+  const io = fakeIo();
+
+  const alice = mockSocket();
+  alice.user = { id: 'user-alice' };
+  handleGameAction(io, alice, roomRepository, undefined, { small: board });
+  await alice._trigger('C2S_GAME_ACTION', {
+    roomId: 'room-1', actionType: 'DRAFT_PICK', payload: { tileId: 't2' }, clientActionId: 'd1',
+  });
+  assert.equal(alice._emitted.find((e) => e.event === 'S2C_ACTION_REJECTED'), undefined);
+  assert.equal(getGameState('room-1').properties.find((pr) => pr.boardTileId === 't2').ownerId, 'gp-alice');
+
+  // Bob, next in the order, names the tile Alice just took — the live
+  // ownership-steal bug's exact shape. It must be refused, and reported as a
+  // real reason rather than a system fault.
+  const bob = mockSocket();
+  bob.user = { id: 'user-bob' };
+  handleGameAction(io, bob, roomRepository, undefined, { small: board });
+  await bob._trigger('C2S_GAME_ACTION', {
+    roomId: 'room-1', actionType: 'DRAFT_PICK', payload: { tileId: 't2' }, clientActionId: 'd2',
+  });
+  const stolen = bob._emitted.find((e) => e.event === 'S2C_ACTION_REJECTED');
+  assert.ok(stolen, 'a tile someone already drafted must not be re-pickable');
+  assert.equal(stolen.payload.errorCode, 'TILE_NOT_AVAILABLE');
+  assert.equal(getGameState('room-1').properties.find((pr) => pr.boardTileId === 't2').ownerId, 'gp-alice', 'still hers');
+
+  // Passing is a real, legal move through the socket too.
+  await bob._trigger('C2S_GAME_ACTION', {
+    roomId: 'room-1', actionType: 'DRAFT_PASS', payload: {}, clientActionId: 'd3',
+  });
+  assert.equal(bob._emitted.filter((e) => e.event === 'S2C_ACTION_REJECTED').length, 1, 'the pass itself was accepted');
+});
+
 function buildTwoPlayerPostActionsGameState() {
   const players = [
     createPlayerGameState({ id: 'gp-bank', gameId: 'g1', isBank: true, currentBalance: 20000 }),

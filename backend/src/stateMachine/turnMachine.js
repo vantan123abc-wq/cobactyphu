@@ -179,7 +179,7 @@ import {
   calculateMortgage,
   calculateUnmortgage,
 } from '../economy/propertyEconomy.js';
-import { calculateAuctionFee, calculateBrokerCommission, startAuction, placeBid, foldBidder, resolveAuction } from '../engine/auction.js';
+import { calculateAuctionFee, startAuction, placeBid, foldBidder, resolveAuction } from '../engine/auction.js';
 import { drawCard, evaluateEvent, resolveChoice } from '../engine/eventResolver.js';
 import { EVENT_CARDS } from '../domain/eventDictionary.js';
 import { MIN_UPGRADE_LEVEL, MAX_UPGRADE_LEVEL } from '../domain/property.js';
@@ -1958,7 +1958,7 @@ function handlePlayMovementCard(gameState, boardTiles, action, now) {
     );
   }
 
-  const { newPosition, passedGo, stoppedByTrap, tolls, cardEffects, consumedTrapTileIndexes, trapHits } = resolveMovement(
+  const { newPosition, passedGo, stoppedByTrap: _stoppedByTrap, tolls, cardEffects, consumedTrapTileIndexes, trapHits } = resolveMovement(
     stateAfterCost,
     player.id,
     steps,
@@ -2284,7 +2284,6 @@ function startTurn(gameState) {
     ...state,
     phase: player.inJail ? 'JAIL_DECISION' : (state.ruleset === 'ASYMMETRIC' ? 'PLAYING_CARD' : 'ROLLING'),
     lastRollWasDouble: null,
-    currentDoublesStreak: 0,
     // lastRoll is deliberately NOT cleared here as of 2026-08-25 (user
     // request: "người chơi khác cũng thấy được xúc xắc của người chơi đang
     // đổ xúc xắc trên bàn cờ"). Clearing it on every turn advance made three

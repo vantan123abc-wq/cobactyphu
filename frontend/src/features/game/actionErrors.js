@@ -311,6 +311,26 @@ const ERRORS = {
     body: 'Bạn là người chơi cuối cùng còn lại — đầu hàng lúc này sẽ khiến ván không có người thắng.',
   },
 
+  // Draft Phase refusals. All three reach a player only since
+  // InvalidDraftActionError was registered in socketServer.js errorCodeFor
+  // (2026-09-11) — before that they surfaced as a generic system fault, and
+  // without copy here they would surface as the generic FALLBACK instead.
+  TILE_ALREADY_TAKEN: {
+    tone: 'timing',
+    title: 'Ô này vừa có người chọn',
+    body: 'Một người chơi khác đã bốc ô đất này trong lượt draft. Chọn ô khác nhé.',
+  },
+  NO_ACTIVE_DRAFT: {
+    tone: 'timing',
+    title: 'Vòng draft đã kết thúc',
+    body: 'Lượt chọn đất không còn diễn ra nữa. Màn hình sẽ tự cập nhật.',
+  },
+  UNKNOWN_TILE: {
+    tone: 'fault',
+    title: 'Không tìm thấy ô đất',
+    body: 'Ô đất này không thuộc bàn cờ của ván đấu. Thử tải lại trang.',
+  },
+
   // ── Hệ thống ────────────────────────────────────────────────────────
   MALFORMED_PAYLOAD: {
     tone: 'fault',

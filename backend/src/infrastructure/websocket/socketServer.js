@@ -477,7 +477,17 @@ function errorCodeFor(err) {
   ) {
     return err.reason;
   }
-  if (err instanceof TypeError) return 'MALFORMED_PAYLOAD';
+  // A TypeError here is a SERVER crash, not a bad request. It used to map to
+  // MALFORMED_PAYLOAD, whose player-facing copy is 'Dữ liệu gửi lên không
+  // hợp lệ' — so a genuine engine fault (e.g. resolveTile hitting a board
+  // tile with no Property row, itself the downstream symptom of a failed
+  // board load at boot) was reported to the player as a complaint about
+  // their own click. That misdirection cost a real debugging session: the
+  // message pointed at the client while the fault was server-side.
+  // INTERNAL_ERROR says what is true — something broke here, your action
+  // did not happen. MALFORMED_PAYLOAD stays reserved for input this layer
+  // itself rejects as malformed, above.
+  if (err instanceof TypeError) return 'INTERNAL_ERROR';
   return 'INTERNAL_ERROR';
 }
 

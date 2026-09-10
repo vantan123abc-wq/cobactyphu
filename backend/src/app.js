@@ -79,10 +79,16 @@ export function createApp({ jwtSecret, supabase } = {}) {
     // running build can simply say what it is. Falls back to 'unknown'
     // rather than throwing wherever it is unset (local dev, tests, any
     // other host).
+    // `boards` reports whether the one piece of start-up state a match
+    // cannot be created without actually loaded. server.js catches a failed
+    // board fetch, logs it and keeps serving, so without this the only
+    // symptom of that failure was matches breaking mid-turn much later.
+    const boards = req.app.get('boardTilesByBoard') ?? {};
     res.json({
       status: 'ok',
       commit: (process.env.RENDER_GIT_COMMIT ?? 'unknown').slice(0, 7),
       branch: process.env.RENDER_GIT_BRANCH ?? 'unknown',
+      boards: Object.fromEntries(Object.entries(boards).map(([id, tiles]) => [id, tiles?.length ?? 0])),
     });
   });
 
