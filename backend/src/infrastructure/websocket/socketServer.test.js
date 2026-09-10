@@ -767,6 +767,61 @@ test('C2S_GAME_ACTION: a game whose status has already left in_progress is rejec
 // the two deliberate exemptions (FLASH_AUCTION_ACTIVE's any-eligible-bidder
 // rule, and trade's own separate NOT_TARGET/NOT_PROPOSER model).
 
+// ── PLACE_TRAP through the socket layer (2026-09-11) ──────────────────────
+// Reported from a live 2-player Đột Phá match: pressing Đặt Bẫy produced
+// "Dữ liệu gửi lên không hợp lệ". That is the frontend's copy for
+// MALFORMED_PAYLOAD, which errorCodeFor only returns for a TypeError. ~350
+// full matches driven through transitionTurn directly produce none, so if
+// there is a crash it is in this layer, not the engine.
+test('C2S_GAME_ACTION: PLACE_TRAP in an ASYMMETRIC match succeeds through the socket layer', async () => {
+  const roomRepository = fakeGameRoomRepository({ 'room-1': buildRedactionRoom() });
+  const state = buildRedactionGameState();
+  state.phase = 'PLAYING_CARD';
+  setGameState('room-1', state);
+  const io = fakeIo();
+  const socket = mockSocket();
+  socket.user = { id: 'user-alice' }; // turnOrder 0 — the current picker
+
+  handleGameAction(io, socket, roomRepository, undefined, { small: buildSmallBoard() });
+  await socket._trigger('C2S_GAME_ACTION', {
+    roomId: 'room-1',
+    actionType: 'PLACE_TRAP',
+    payload: { cardId: 'MOVE_5', trapType: 'TOLL_BOOTH', targetPosition: 12 },
+    clientActionId: 'trap-1',
+  });
+
+  const rejected = socket._emitted.find((e) => e.event === 'S2C_ACTION_REJECTED');
+  assert.equal(rejected, undefined, `PLACE_TRAP was rejected: ${JSON.stringify(rejected?.payload)}`);
+
+  const stored = getGameState('room-1');
+  assert.equal(stored.activeTraps.length, 1);
+  assert.equal(stored.activeTraps[0].tileIndex, 12);
+  assert.equal(stored.activeTraps[0].ownerId, 'gp-alice');
+  assert.ok(!stored.players.find((pl) => pl.id === 'gp-alice').movementHand.includes('MOVE_5'), 'the card is spent');
+});
+
+test('C2S_GAME_ACTION: a REFUSED trap comes back as its real reason, not a generic system error', async () => {
+  const roomRepository = fakeGameRoomRepository({ 'room-1': buildRedactionRoom() });
+  const state = buildRedactionGameState();
+  state.phase = 'PLAYING_CARD';
+  state.activeTraps = [{ tileIndex: 12, type: 'ROADBLOCK', ownerId: 'gp-bob', expiresAtRound: 99 }];
+  setGameState('room-1', state);
+  const io = fakeIo();
+  const socket = mockSocket();
+  socket.user = { id: 'user-alice' };
+
+  handleGameAction(io, socket, roomRepository, undefined, { small: buildSmallBoard() });
+  await socket._trigger('C2S_GAME_ACTION', {
+    roomId: 'room-1',
+    actionType: 'PLACE_TRAP',
+    payload: { cardId: 'MOVE_5', trapType: 'TOLL_BOOTH', targetPosition: 12 }, // already occupied
+    clientActionId: 'trap-2',
+  });
+
+  const rejected = socket._emitted.find((e) => e.event === 'S2C_ACTION_REJECTED');
+  assert.ok(rejected, 'stacking a trap on an occupied tile must be refused');
+  assert.equal(rejected.payload.errorCode, 'TILE_OCCUPIED', 'the player is told WHY, not just that something broke');
+});
 function buildTwoPlayerPostActionsGameState() {
   const players = [
     createPlayerGameState({ id: 'gp-bank', gameId: 'g1', isBank: true, currentBalance: 20000 }),

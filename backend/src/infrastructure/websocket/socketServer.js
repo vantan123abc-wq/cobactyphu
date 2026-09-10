@@ -460,6 +460,16 @@ function errorCodeFor(err) {
     err.name === 'InvalidBidError' ||
     err.name === 'EventChoiceError' ||
     err.name === 'InvalidPropertyActionError' ||
+    // The two ASYMMETRIC classes, registered 2026-09-11. Both shipped with
+    // their features (Draft Phase, traps) and neither was ever added here,
+    // so every trap and draft refusal fell through to INTERNAL_ERROR —
+    // the player got "Lỗi hệ thống" for an ordinary, expected rejection
+    // like "that tile already has a trap on it", while actionErrors.js's
+    // real Vietnamese copy for TILE_OCCUPIED / TRAP_LIMIT_REACHED /
+    // INVALID_POSITION / UNKNOWN_TRAP_TYPE / TILE_NOT_AVAILABLE sat there
+    // unreachable. Reported from a live match as Đặt Bẫy "erroring".
+    err.name === 'InvalidTrapActionError' ||
+    err.name === 'InvalidDraftActionError' ||
     err.name === 'InvalidTradeError' ||
     err.name === 'InvalidJailActionError' ||
     err.name === 'InvalidInventoryActionError' ||
