@@ -69,7 +69,21 @@ export function createApp({ jwtSecret, supabase } = {}) {
   // API_CONTRACT.md: no auth required, no versioned error envelope needed —
   // this is the one endpoint outside that convention by design.
   app.get('/api/v1/health', (req, res) => {
-    res.json({ status: 'ok' });
+    // `commit` added 2026-09-10. Production silently served 8-day-old code
+    // for a week: the ownership-steal bug in the draft was still being hit
+    // long after it was fixed and pushed, and answering "which commit is
+    // actually deployed?" meant digging through the Render dashboard —
+    // where it is easy to land on an OLD deploy's page (or its Rollback
+    // tab) and read the wrong hash off it. Render injects
+    // RENDER_GIT_COMMIT into every service it builds from a repo, so the
+    // running build can simply say what it is. Falls back to 'unknown'
+    // rather than throwing wherever it is unset (local dev, tests, any
+    // other host).
+    res.json({
+      status: 'ok',
+      commit: (process.env.RENDER_GIT_COMMIT ?? 'unknown').slice(0, 7),
+      branch: process.env.RENDER_GIT_BRANCH ?? 'unknown',
+    });
   });
 
   if (jwtSecret) {

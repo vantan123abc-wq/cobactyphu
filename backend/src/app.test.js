@@ -17,7 +17,7 @@ function makeToken(payload, secret = TEST_SECRET) {
   return `${headerB64}.${payloadB64}.${signatureB64}`;
 }
 
-test('GET /api/v1/health returns 200 and { status: "ok" }', async () => {
+test('GET /api/v1/health returns 200, and names the commit it is running', async () => {
   const app = createApp();
   const server = app.listen(0); // port 0 — OS assigns a free port, avoids test collisions
   const { port } = server.address();
@@ -26,9 +26,38 @@ test('GET /api/v1/health returns 200 and { status: "ok" }', async () => {
     const res = await fetch(`http://localhost:${port}/api/v1/health`);
     assert.equal(res.status, 200);
     const body = await res.json();
-    assert.deepEqual(body, { status: 'ok' });
+    assert.equal(body.status, 'ok');
+    // RENDER_GIT_COMMIT is unset outside Render, and the endpoint must
+    // still answer rather than throw — that fallback is the whole reason
+    // this is asserted instead of assumed.
+    assert.equal(body.commit, 'unknown');
+    assert.equal(body.branch, 'unknown');
   } finally {
     server.close();
+  }
+});
+
+test('GET /api/v1/health reports the deployed commit, short-form, when the host provides one', async () => {
+  // The case that matters in production and can never be observed locally:
+  // Render sets these on every build. Restored afterwards so the ambient
+  // environment of the rest of the suite is untouched.
+  const priorCommit = process.env.RENDER_GIT_COMMIT;
+  const priorBranch = process.env.RENDER_GIT_BRANCH;
+  process.env.RENDER_GIT_COMMIT = '4794122abcdef0123456789abcdef0123456789a';
+  process.env.RENDER_GIT_BRANCH = 'master';
+
+  const app = createApp();
+  const server = app.listen(0);
+  const { port } = server.address();
+
+  try {
+    const body = await (await fetch(`http://localhost:${port}/api/v1/health`)).json();
+    assert.equal(body.commit, '4794122', 'short hash, so it can be eyeballed against `git log --oneline`');
+    assert.equal(body.branch, 'master');
+  } finally {
+    server.close();
+    if (priorCommit === undefined) delete process.env.RENDER_GIT_COMMIT; else process.env.RENDER_GIT_COMMIT = priorCommit;
+    if (priorBranch === undefined) delete process.env.RENDER_GIT_BRANCH; else process.env.RENDER_GIT_BRANCH = priorBranch;
   }
 });
 
