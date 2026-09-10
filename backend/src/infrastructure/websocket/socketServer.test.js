@@ -19,7 +19,7 @@ import { createTile } from '../../domain/tile.js';
 import { createProperty } from '../../domain/property.js';
 import { startAuction } from '../../engine/auction.js';
 import { setGameState, getGameState, _resetForTests as resetGameRepository } from '../../infrastructure/repositories/gameRepository.js';
-import { TIMER_DURATIONS_SECONDS } from '../../stateMachine/timers.js';
+import { TIMER_DURATIONS_SECONDS, buildDefaultAction } from '../../stateMachine/timers.js';
 import { TEST_JWK, signEs256 } from '../../testUtils/testEs256.js';
 import { createFakeSupabase } from '../../testUtils/fakeSupabase.js';
 
@@ -938,6 +938,148 @@ test('C2S_GAME_ACTION: DRAFT_PICK/DRAFT_PASS work through the socket, and an alr
   assert.equal(bob._emitted.filter((e) => e.event === 'S2C_ACTION_REJECTED').length, 1, 'the pass itself was accepted');
 });
 
+// ── A whole 2-player match, played through the socket (2026-09-11) ────────
+// Written because the project cannot currently be tested with real people,
+// and because every live bug this mode has produced needed exactly that: two
+// clients talking to one server. The in-process fakes make that reproducible
+// with no server, no auth, no Supabase and no second human.
+//
+// Every action is chosen by the engine's OWN buildDefaultAction — the same
+// function a turn timeout uses — so this covers every phase the match walks
+// through without hand-writing a policy per phase. What it exercises that
+// turnMachine.test.js cannot: real socket dispatch, turn-ownership
+// enforcement, serverGeneratedFields (the server rolling dice and card
+// rolls rather than trusting the client), the idempotency cache, and the
+// per-viewer redaction fan-out.
+//
+// The assertions are invariants rather than a fixed script, because the
+// match is genuinely random: nothing may ever be rejected as INTERNAL_ERROR
+// or MALFORMED_PAYLOAD (both mean a crash, never a rules refusal), and no
+// player may ever be handed another player's hand.
+function playSocketMatch({ ruleset, maxActions = 600, trapEvery = 0 }) {
+  const board = buildSmallBoard();
+  const roomRepository = fakeGameRoomRepository({ 'room-1': buildRedactionRoom() });
+  const state = buildRedactionGameState();
+  state.ruleset = ruleset;
+  state.phase = ruleset === 'ASYMMETRIC' ? 'DRAFTING_ACTIVE' : 'TURN_START';
+  state.draftState =
+    ruleset === 'ASYMMETRIC'
+      ? { round: 1, pickOrder: ['gp-alice', 'gp-bob'], currentPickIndex: 0, availableTileIds: ['t2', 't3', 't5', 't7'] }
+      : null;
+  state.properties = board
+    .filter((t) => ['property', 'transport', 'utility'].includes(t.tileType))
+    .map((t) => createProperty({ id: `pr${t.position}`, gameId: 'g1', boardTileId: t.id }));
+  setGameState('room-1', state);
+
+  // mulberry32 — small, deterministic, good enough for driving a match.
+  let seed = 0x9e3779b9;
+  const seeded = () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const io = fakeIo();
+  const sockets = {};
+  for (const [gpId, userId] of [['gp-alice', 'user-alice'], ['gp-bob', 'user-bob']]) {
+    const s = mockSocket();
+    s.user = { id: userId };
+    io._joinRoom('room-1', s);
+    // Seeded, so a failure is reproducible. Without this the server rolls
+    // real dice through Math.random and the match differs every run — a
+    // flaky test is worse than no test.
+    handleGameAction(io, s, roomRepository, undefined, { small: board }, seeded);
+    sockets[gpId] = s;
+  }
+
+  const crashes = [];
+  const leaks = [];
+  let acted = 0;
+
+  const pump = async () => {
+    for (let i = 0; i < maxActions; i++) {
+      const gs = getGameState('room-1');
+      if (gs.status !== 'in_progress') break;
+      const current = gs.players.find((p) => !p.isBank && p.turnOrder === gs.currentTurnIndex);
+      const actor = gs.phase === 'DRAFTING_ACTIVE'
+        ? gs.draftState.pickOrder[gs.draftState.currentPickIndex]
+        : current?.id;
+      const socket = sockets[actor];
+      if (!socket) break;
+
+      let action = buildDefaultAction(gs.phase, gs, board, () => 0.5);
+      if (!action) break;
+      // Periodically lay a trap instead of moving, so the trap path is part
+      // of a real match rather than only of its own isolated test.
+      if (trapEvery && gs.phase === 'PLAYING_CARD' && acted % trapEvery === 0) {
+        const hand = gs.players.find((p) => p.id === actor)?.movementHand ?? [];
+        const taken = new Set((gs.activeTraps ?? []).map((t) => t.tileIndex));
+        const target = [...Array(board.length).keys()].find((n) => !taken.has(n));
+        if (hand.length > 0 && target != null) {
+          action = { type: 'PLACE_TRAP', payload: { cardId: hand[0], trapType: 'TOLL_BOOTH', targetPosition: target } };
+        }
+      }
+
+      const before = socket._emitted.length;
+      await socket._trigger('C2S_GAME_ACTION', {
+        roomId: 'room-1',
+        actionType: action.type,
+        payload: action.payload ?? {},
+        clientActionId: `a${i}`,
+      });
+      acted++;
+
+      for (const e of socket._emitted.slice(before)) {
+        if (e.event !== 'S2C_ACTION_REJECTED') continue;
+        const code = e.payload.errorCode;
+        // A rules refusal is fine and expected (the default action is a
+        // best guess, not an oracle). A crash is not.
+        if (code === 'INTERNAL_ERROR' || code === 'MALFORMED_PAYLOAD') {
+          crashes.push({ phase: gs.phase, action: action.type, code, message: e.payload.message });
+        }
+      }
+
+      // Redaction invariant: whatever each socket was last sent, it must not
+      // contain another player's real hand.
+      for (const [gpId, sock] of Object.entries(sockets)) {
+        const last = [...sock._emitted].reverse().find((e) => e.event === 'S2C_STATE_UPDATE');
+        if (!last) continue;
+        for (const p of last.payload.gameState.players) {
+          if (p.isBank || p.id === gpId) continue;
+          for (const card of p.movementHand ?? []) {
+            if (card !== 'HIDDEN') leaks.push({ viewer: gpId, owner: p.id, card });
+          }
+        }
+      }
+    }
+  };
+
+  return { pump, crashes, leaks, acted: () => acted };
+}
+
+test('a full ASYMMETRIC match played through the socket never crashes and never leaks a hand', async () => {
+  const m = playSocketMatch({ ruleset: 'ASYMMETRIC', trapEvery: 7 });
+  await m.pump();
+
+  assert.deepEqual(m.crashes, [], 'no action may fail as a crash');
+  assert.deepEqual(m.leaks.slice(0, 5), [], "no player may be sent another player's real hand");
+  assert.ok(m.acted() > 40, `the match should actually progress — only ${m.acted()} actions ran`);
+
+  const gs = getGameState('room-1');
+  assert.equal(gs.draftState, null, 'the draft finished and handed off to real turns');
+  assert.ok(gs.roundNumber >= 1, 'play advanced past the draft');
+});
+
+test('a full CLASSIC match played through the socket never crashes either', async () => {
+  // The same driver against the shipped ruleset, so this harness cannot
+  // quietly become ASYMMETRIC-only coverage.
+  const m = playSocketMatch({ ruleset: 'CLASSIC' });
+  await m.pump();
+
+  assert.deepEqual(m.crashes, [], 'no action may fail as a crash');
+  assert.ok(m.acted() > 40, `the match should actually progress — only ${m.acted()} actions ran`);
+});
+
 function buildTwoPlayerPostActionsGameState() {
   const players = [
     createPlayerGameState({ id: 'gp-bank', gameId: 'g1', isBank: true, currentBalance: 20000 }),
@@ -1497,6 +1639,11 @@ function fixedRandom(sequence) {
 function buildSmallBoard() {
   const fixed = [
     { position: 0, tileType: 'go', name: 'GO' },
+    // Jail and Go To Jail, mirroring both real boards. Without them a player
+    // who gets jailed hits jailPositionOf() with nothing to find — which is
+    // exactly how the unguarded lookups in turnMachine.js were discovered.
+    { position: 9, tileType: 'jail', name: 'Jail (Just Visiting)' },
+    { position: 27, tileType: 'go_to_jail', name: 'Go To Jail' },
     {
       position: 2,
       tileType: 'property',

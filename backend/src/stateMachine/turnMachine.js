@@ -487,8 +487,7 @@ function applyIntents(gameState, boardTiles, intents, transactionType, contextPl
       // roll): this is a direct relocation, not movement across the board,
       // so there's no "crossed position 0 along the way" to reason about.
       const targetPlayer = state.players.find((p) => p.id === (intent.playerId ?? contextPlayerId));
-      const jailTile = boardTiles.find((t) => t.tileType === 'jail');
-      const jailed = sendToJail(targetPlayer, jailTile.position);
+        const jailed = sendToJail(targetPlayer, jailPositionOf(boardTiles));
       state = {
         ...replacePlayer(state, jailed),
         // Third of the three real entries into jail (385 of 2543 in the same
@@ -1864,6 +1863,33 @@ function handleDraftAction(gameState, boardTiles, action, now) {
  * lands, this one doesn't), and forcing a shared helper for two lines of
  * hand bookkeeping would cost more clarity than it saves.
  */
+/**
+ * The Jail tile's board position.
+ *
+ * Three call sites read `boardTiles.find((t) => t.tileType === 'jail').position`
+ * with no guard. Every real board has a Jail tile, so that is safe *given a
+ * real board* — but server.js tolerates a failed board fetch at boot and keeps
+ * serving with an empty tile list, and an empty list makes all three throw
+ * "Cannot read properties of undefined (reading 'position')". A bare TypeError
+ * is the worst possible shape for that failure: it names nothing, and it
+ * reaches the player as a generic fault for a boot problem minutes earlier.
+ * Found by running a full match through the socket against a fixture board
+ * that happened to have no Jail tile.
+ *
+ * Still throws — a board with no Jail is genuinely unusable, and masking that
+ * would be worse than failing — but it now says what is actually wrong.
+ */
+function jailPositionOf(boardTiles) {
+  const tiles = boardTiles ?? [];
+  const jailTile = tiles.find((t) => t.tileType === 'jail');
+  if (!jailTile) {
+    throw new Error(
+      `jailPositionOf: this board has no jail tile (${tiles.length} tiles loaded) — no player can be jailed on it`
+    );
+  }
+  return jailTile.position;
+}
+
 function handlePlaceTrap(gameState, boardTiles, action) {
   const { cardId, trapType, targetPosition } = action.payload ?? {};
   const player = getCurrentPlayer(gameState);
@@ -2148,8 +2174,7 @@ function moveAndResolve(gameState, boardTiles, playerId, rollResult, now) {
     // double, not a reward. lastRollWasDouble/currentDoublesStreak are
     // explicitly reset here so advanceTurn correctly moves on to the next
     // player, and the jailed player starts clean next time.
-    const jailTile = boardTiles.find((t) => t.tileType === 'jail');
-    const jailed = sendToJail(player, jailTile.position);
+    const jailed = sendToJail(player, jailPositionOf(boardTiles));
     const jailedState = {
       ...replacePlayer(gameState, jailed),
       lastRollWasDouble: false,
@@ -2196,8 +2221,7 @@ function moveAndResolve(gameState, boardTiles, playerId, rollResult, now) {
   // (max 12) on either board, not just assumed safe to ignore.
   const landedTile = boardTiles.find((t) => t.position === newPosition);
   if (landedTile.tileType === 'go_to_jail') {
-    const jailTile = boardTiles.find((t) => t.tileType === 'jail');
-    const jailed = sendToJail(player, jailTile.position);
+    const jailed = sendToJail(player, jailPositionOf(boardTiles));
     const jailedState = {
       ...replacePlayer(gameState, jailed),
       lastRollWasDouble: false,
