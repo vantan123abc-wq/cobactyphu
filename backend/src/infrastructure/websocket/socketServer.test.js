@@ -582,6 +582,77 @@ test('C2S_GAME_ACTION domain error: bidding too low is rejected to the sender, s
   assert.equal(stored.stateVersion, 0); // untouched — rejected actions never advance it
 });
 
+// ── Crash visibility (2026-09-11) ──────────────────────────────────────────
+// A crash inside a player action used to be invisible: the catch emitted
+// S2C_ACTION_REJECTED and returned, logging nothing. The player saw
+// "Dữ liệu gửi lên không hợp lệ" (the frontend's copy for MALFORMED_PAYLOAD,
+// which errorCodeFor only produces for a TypeError) and the server log held
+// nothing at all — a real crash reported from a live Đột Phá match could not
+// be traced, because there was nothing to trace it with.
+async function captureStderr(fn) {
+  const original = console.error;
+  const lines = [];
+  console.error = (...args) => lines.push(args.map(String).join(' '));
+  try {
+    await fn();
+  } finally {
+    console.error = original;
+  }
+  return lines;
+}
+
+test('an UNEXPECTED error in a player action is logged with its stack and context, not swallowed', async () => {
+  const roomRepository = fakeGameRoomRepository({ 'room-1': buildAuctionRoom() });
+  const corrupted = buildAuctionGameState();
+  // activeBidders is an array everywhere in the engine; nulling it makes
+  // placeBid dereference null — i.e. a genuine TypeError, the same class of
+  // failure a real bug produces, rather than an Invalid*Error the engine
+  // raises on purpose.
+  corrupted.pendingAuction.activeBidders = null;
+  setGameState('room-1', corrupted);
+  const io = fakeIo();
+  const socket = mockSocket();
+  socket.user = { id: 'user-bob' };
+
+  handleGameAction(io, socket, roomRepository, undefined);
+  const logged = await captureStderr(() =>
+    socket._trigger('C2S_GAME_ACTION', {
+      roomId: 'room-1',
+      actionType: 'PLACE_BID',
+      payload: { amount: 250 },
+      clientActionId: 'action-crash',
+    })
+  );
+
+  assert.equal(socket._emitted[0].event, 'S2C_ACTION_REJECTED');
+  assert.equal(socket._emitted[0].payload.errorCode, 'MALFORMED_PAYLOAD');
+  assert.equal(logged.length, 1, 'exactly one log line — the crash');
+  assert.match(logged[0], /PLACE_BID/, 'names the action');
+  assert.match(logged[0], /room-1/, 'names the room');
+  assert.match(logged[0], /TypeError/, 'names the failure and carries its stack');
+});
+
+test('an ordinary rules rejection is NOT logged — refusals are normal traffic, not incidents', async () => {
+  const roomRepository = fakeGameRoomRepository({ 'room-1': buildAuctionRoom() });
+  setGameState('room-1', buildAuctionGameState());
+  const io = fakeIo();
+  const socket = mockSocket();
+  socket.user = { id: 'user-bob' };
+
+  handleGameAction(io, socket, roomRepository, undefined);
+  const logged = await captureStderr(() =>
+    socket._trigger('C2S_GAME_ACTION', {
+      roomId: 'room-1',
+      actionType: 'PLACE_BID',
+      payload: { amount: 200 }, // does not exceed currentBid — BID_TOO_LOW
+      clientActionId: 'action-quiet',
+    })
+  );
+
+  assert.equal(socket._emitted[0].payload.errorCode, 'BID_TOO_LOW');
+  assert.deepEqual(logged, [], 'a refused bid must not produce log noise');
+});
+
 test('C2S_GAME_ACTION auth error: a player not in the room is rejected with NOT_A_PARTICIPANT', async () => {
   const roomRepository = fakeGameRoomRepository({ 'room-1': buildAuctionRoom() });
   setGameState('room-1', buildAuctionGameState());

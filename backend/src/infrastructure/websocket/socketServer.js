@@ -999,9 +999,34 @@ export function handleGameAction(io, socket, roomRepository, supabase, boardTile
     try {
       result = applyWithIdempotency(gameState, action, cache, transitionFn, now);
     } catch (err) {
+      const errorCode = errorCodeFor(err);
+      // A rules rejection (PHASE_MISMATCH, INSUFFICIENT_BALANCE, ...) is
+      // ordinary traffic and stays unlogged — players are refused things
+      // constantly and logging it would bury everything else. MALFORMED_
+      // PAYLOAD and INTERNAL_ERROR are the opposite: errorCodeFor only
+      // returns those for an error the engine never meant to raise, i.e. a
+      // real crash.
+      //
+      // Added 2026-09-11 because this catch previously swallowed those
+      // whole. Every other failure path in this file logs (turnTimers,
+      // persistAndBroadcast, handleTurnTimeout) — the single entry point
+      // for every player action did not, so a crash in a live match showed
+      // the player 'Dữ liệu gửi lên không hợp lệ' and left NOTHING in the
+      // server log to diagnose it with. A real one was reported from a
+      // 2-player Đột Phá match and could not be traced at all, because
+      // there was nothing to trace.
+      if (errorCode === 'MALFORMED_PAYLOAD' || errorCode === 'INTERNAL_ERROR') {
+        console.error(
+          `C2S_GAME_ACTION: unexpected ${err?.name ?? 'error'} handling '${actionType}' ` +
+            `in room '${roomId}' for player '${gamePlayer?.id ?? 'unknown'}' ` +
+            `(phase=${gameState?.phase}, ruleset=${gameState?.ruleset}, stateVersion=${gameState?.stateVersion}) — ` +
+            `payload=${JSON.stringify(payload ?? null)}`,
+          err?.stack ?? err
+        );
+      }
       socket.emit('S2C_ACTION_REJECTED', {
         clientActionId,
-        errorCode: errorCodeFor(err),
+        errorCode,
         message: err.message,
       });
       return;
