@@ -1,0 +1,60 @@
+.wrap {
+  display: grid;
+  place-items: center;
+  min-block-size: 100vh;
+  padding: 1.5rem;
+  background: #12100c;
+}
+
+.card {
+  max-inline-size: 32rem;
+  padding: 1.75rem;
+  border: 1px solid rgba(255, 214, 122, 0.35);
+  border-radius: 0.9rem;
+  background: rgba(24, 20, 15, 0.95);
+  box-shadow: 0 1.25rem 3rem rgba(0, 0, 0, 0.55);
+  color: #f4ecd8;
+  text-align: center;
+}
+
+.eyebrow {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #ffd67a;
+}
+
+.reason {
+  margin: 0 0 0.65rem;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.note {
+  margin: 0 0 1.25rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: rgba(244, 236, 216, 0.72);
+}
+
+.button {
+  padding: 0.6rem 1.4rem;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffd67a, #e0a93c);
+  color: #2a1e08;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.button:hover {
+  filter: brightness(1.06);
+}
+
+.code {
+  margin: 1rem 0 0;
+  font-size: 0.75rem;
+  color: rgba(244, 236, 216, 0.45);
+}

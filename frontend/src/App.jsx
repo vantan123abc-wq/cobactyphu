@@ -7,6 +7,7 @@ import Login from './pages/Login'
 import LobbyDiagnostic from './features/lobby/LobbyDiagnostic'
 import Lobby from './features/lobby/Lobby'
 import GameView from './features/game/GameView'
+import MatchUnavailable from './features/game/MatchUnavailable'
 import './App.css'
 
 // No router — this project deliberately has none yet (PROJECT_STATUS.md:
@@ -84,6 +85,7 @@ function App() {
   const { user, session, loading } = useAuth()
   const roomState = useGameStore((s) => s.roomState)
   const currentGameState = useGameStore((s) => s.currentGameState)
+  const matchUnavailable = useGameStore((s) => s.matchUnavailable)
 
   useSessionResume(user, session)
 
@@ -107,6 +109,13 @@ function App() {
   // specifically while GameView is showing, so there's no mismatched double
   // header (the app's normal light/dark-adaptive header sitting directly
   // above the in-game screen's own fixed dark theme).
+  // Once the server has said this match is gone, the board is a ghost —
+  // it renders from this tab's own stale state and every action it offers
+  // will be refused. Say that instead of letting the player keep clicking.
+  if (matchUnavailable) {
+    return <MatchUnavailable />
+  }
+
   if (gameHasStarted && roomState) {
     return <GameView />
   }

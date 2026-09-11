@@ -23,7 +23,12 @@ import { create } from 'zustand'
 //   that decides *when* to fetch (on seeing gameState.boardId) and calls
 //   setStaticBoard with the result, same "store just holds state, the
 //   client module orchestrates" split every other field here already uses.
-export const useGameStore = create((set) => ({
+// See matchUnavailable below. These three are socketServer.js's own codes
+// for "there is no live game here for you", as opposed to any of the ~40
+// codes that refuse one specific move.
+const MATCH_UNAVAILABLE_CODES = new Set(['GAME_NOT_FOUND', 'ROOM_NOT_IN_PROGRESS', 'NOT_A_PARTICIPANT'])
+
+export const useGameStore = create((set, get) => ({
   // 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
   connectionStatus: 'disconnected',
   roomState: null,
@@ -35,6 +40,20 @@ export const useGameStore = create((set) => ({
   deadlineAt: null,
   offlinePlayerIds: [],
   lastError: null, // most recent S2C_ACTION_REJECTED payload — diagnostic visibility only
+  // Codes that mean "this match is not available to you on the server" —
+  // not "that particular move was refused". socketServer.js emits them from
+  // one guard, before any dispatch, when resolveLiveGameState() finds
+  // nothing for the room: no hot state (the process restarted — a deploy
+  // does exactly this) and no durable snapshot it could cold-load.
+  //
+  // Added 2026-09-11 because the client had no notion of this state at all.
+  // It kept rendering a fully interactive board for a match the server had
+  // forgotten, so every click came back "Ván chưa bắt đầu" — a sentence that
+  // reads as nonsense in round 3, and which sent a real player hunting for a
+  // bug in the Đầu hàng button when nothing was wrong with it. The board is
+  // a ghost at that point; saying so is the only honest thing to render.
+  matchUnavailable: null,
+
   staticBoard: null, // { boardId, tiles[] } from GET /api/v1/boards/:boardId, or null until fetched
   // Event-card dictionary — { [cardId]: card }, from GET /api/v1/event-cards.
   // Match-static (a plain JS constant server-side), so it is fetched once per
@@ -172,7 +191,13 @@ export const useGameStore = create((set) => ({
       offlinePlayerIds: state.offlinePlayerIds.filter((id) => id !== playerId),
     })),
 
-  setLastError: (lastError) => set({ lastError }),
+  setLastError: (lastError) =>
+    set({
+      lastError,
+      // Sticky: once the server has told us this match is gone, further
+      // rejections (or a later unrelated one) must not clear it.
+      matchUnavailable: MATCH_UNAVAILABLE_CODES.has(lastError?.errorCode) ? lastError.errorCode : get().matchUnavailable,
+    }),
 
   setStaticBoard: (staticBoard) => set({ staticBoard }),
 
@@ -230,6 +255,7 @@ export const useGameStore = create((set) => ({
       deadlineAt: null,
       offlinePlayerIds: [],
       lastError: null,
+      matchUnavailable: null,
       selectedPropertyId: null,
       tradeDraftTargetId: null,
       trapDraft: null,
