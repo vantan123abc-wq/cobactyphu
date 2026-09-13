@@ -296,6 +296,15 @@ async function joinSocketToRoom(socket, roomRepository, supabase, roomId) {
     return null;
   }
 
+  // Leave whatever room this socket was attached to before. It never did:
+  // a socket that joined room A and then room B stayed subscribed to BOTH
+  // Socket.IO rooms, receiving A's state broadcasts after its client had
+  // moved on, while socket.roomId was silently overwritten to B — so the
+  // disconnect handler would report presence for B only and A would keep
+  // this player marked online forever. One socket, one room.
+  if (socket.roomId && socket.roomId !== record.id) {
+    socket.leave(socket.roomId);
+  }
   socket.join(record.id);
   socket.roomId = record.id;
   return record;

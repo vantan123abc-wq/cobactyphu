@@ -28,6 +28,24 @@ import { create } from 'zustand'
 // codes that refuse one specific move.
 const MATCH_UNAVAILABLE_CODES = new Set(['GAME_NOT_FOUND', 'ROOM_NOT_IN_PROGRESS', 'NOT_A_PARTICIPANT'])
 
+// Everything that belongs to ONE match. Cleared whenever the room this tab
+// is attached to changes (setRoomState below), so state from one match can
+// never be displayed — or acted on — under a different room's id.
+const GAME_SCOPED_RESET = {
+  currentGameState: null,
+  stateVersion: null,
+  transactions: [],
+  deadlineAt: null,
+  offlinePlayerIds: [],
+  lastError: null,
+  matchUnavailable: null,
+  selectedPropertyId: null,
+  tradeDraftTargetId: null,
+  trapDraft: null,
+  transactionLog: [],
+  eventCardLog: [],
+}
+
 export const useGameStore = create((set, get) => ({
   // 'disconnected' | 'connecting' | 'connected' | 'reconnecting'
   connectionStatus: 'disconnected',
@@ -137,7 +155,26 @@ export const useGameStore = create((set, get) => ({
 
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
 
-  setRoomState: (roomState) => set({ roomState }),
+  // Clears the previous match's state whenever the room actually changes
+  // (or is cleared). It used to replace roomState and leave currentGameState
+  // alone, which made one real failure possible: an old match's board still
+  // in the store, a NEW lobby room in roomState, and App.jsx rendering the
+  // board because currentGameState was non-null. Every action then went out
+  // under the new room's id (sendGameAction reads roomState.roomId) — and the
+  // server, correctly, answered "Ván chưa bắt đầu" to a player looking at
+  // round 3 of a different game. Confirmed against production data on
+  // 2026-09-11: the player's live match and the new lobby were separate rooms
+  // they belonged to, and the rejection landed in the minute the lobby was
+  // last updated. Re-joining the SAME room (a reconnect resync) keeps
+  // everything, since that is the same match.
+  setRoomState: (roomState) =>
+    set((state) => {
+      const previousRoomId = state.roomState?.roomId ?? state.currentGameState?.roomId ?? null
+      const nextRoomId = roomState?.roomId ?? null
+      if (nextRoomId !== null && nextRoomId === previousRoomId) return { roomState }
+      if (nextRoomId === null && previousRoomId === null) return { roomState }
+      return { roomState, ...GAME_SCOPED_RESET }
+    }),
 
   setRoomExitNotice: (roomExitNotice) => set({ roomExitNotice }),
 

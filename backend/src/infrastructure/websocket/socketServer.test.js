@@ -83,12 +83,19 @@ function mockSocket({ token } = {}) {
     roomId: undefined,
     _emitted: [],
     _joined: [],
+    _left: [],
     _toEmitted: [], // P10-T03: socket.to(room).emit(...) calls — broadcasts that exclude this socket itself
     emit(event, payload) {
       this._emitted.push({ event, payload });
     },
     join(room) {
       this._joined.push(room);
+    },
+    // Mirrors a real Socket.IO socket.leave(): joinSocketToRoom now leaves a
+    // socket's previous room before attaching it to a new one.
+    leave(room) {
+      this._left.push(room);
+      this._joined = this._joined.filter((r) => r !== room);
     },
     to(room) {
       return {
@@ -256,6 +263,42 @@ test('C2S_JOIN_ROOM success: a participant joins the socket room and receives S2
     members: ['user-42', 'user-7'],
     roomStatus: 'waiting_for_players',
   });
+});
+
+// One socket, one room (2026-09-11). joinSocketToRoom used to only ever
+// join, never leave: a socket that attached to a live match and later to a
+// new lobby stayed subscribed to both, while socket.roomId was silently
+// overwritten — the server-side half of a real "old board, new room" bug.
+test('C2S_JOIN_ROOM: joining a second room leaves the first', async () => {
+  const roomRepository = fakeRoomRepository({
+    'room-old': { id: 'room-old', status: 'in_progress', players: [{ playerId: 'user-42', isHost: true }] },
+    'room-new': { id: 'room-new', status: 'waiting_for_players', players: [{ playerId: 'user-42', isHost: true }] },
+  });
+  const socket = mockSocket();
+  socket.user = { id: 'user-42' };
+
+  handleJoinRoom({}, socket, roomRepository, undefined);
+  await socket._trigger('C2S_JOIN_ROOM', { roomId: 'room-old' });
+  await socket._trigger('C2S_JOIN_ROOM', { roomId: 'room-new' });
+
+  assert.deepEqual(socket._joined, ['room-new'], 'subscribed to the new room only');
+  assert.deepEqual(socket._left, ['room-old'], 'the old room was actually left');
+  assert.equal(socket.roomId, 'room-new');
+});
+
+test('C2S_JOIN_ROOM: re-joining the SAME room does not leave it', async () => {
+  const roomRepository = fakeRoomRepository({
+    'room-1': { id: 'room-1', status: 'in_progress', players: [{ playerId: 'user-42', isHost: true }] },
+  });
+  const socket = mockSocket();
+  socket.user = { id: 'user-42' };
+
+  handleJoinRoom({}, socket, roomRepository, undefined);
+  await socket._trigger('C2S_JOIN_ROOM', { roomId: 'room-1' });
+  await socket._trigger('C2S_JOIN_ROOM', { roomId: 'room-1' });
+
+  assert.deepEqual(socket._left, [], 'a reconnect to the same room must not drop it');
+  assert.equal(socket.roomId, 'room-1');
 });
 
 test('C2S_JOIN_ROOM failure: a non-participant is rejected and never joins the socket room', async () => {

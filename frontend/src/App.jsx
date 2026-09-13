@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useAuth } from './features/auth/AuthContext'
 import { useGameStore } from './store/gameStore'
 import { getMe } from './network/api'
-import { connectSocket, joinRoom } from './network/socketClient'
+import { connectSocket, joinRoom, disconnectSocket } from './network/socketClient'
 import Login from './pages/Login'
 import LobbyDiagnostic from './features/lobby/LobbyDiagnostic'
 import Lobby from './features/lobby/Lobby'
@@ -51,7 +51,22 @@ function useSessionResume(user, session) {
   const attempted = useRef(false)
 
   useEffect(() => {
-    if (!user || attempted.current) return
+    if (!user) {
+      // Signed out (by the button, or a session that expired while the tab
+      // sat open). Nothing used to react to this: the store and the socket
+      // both survived into the next login in the same tab — including a
+      // login as a DIFFERENT account, which would inherit the previous
+      // account's board, room and live socket. Tear both down, and re-arm
+      // the resume attempt so the next login gets its own.
+      const store = useGameStore.getState()
+      if (store.roomState || store.currentGameState) {
+        store.resetAfterGame()
+        disconnectSocket()
+      }
+      attempted.current = false
+      return
+    }
+    if (attempted.current) return
     if (useGameStore.getState().roomState) return
     attempted.current = true
 
@@ -101,7 +116,14 @@ function App() {
     return <Login />
   }
 
-  const gameHasStarted = roomState?.roomStatus === 'in_progress' || currentGameState !== null
+  // A board only counts if it belongs to THIS room. Before a match's first
+  // state update arrives, the room flipping to in_progress is enough (GameView
+  // renders its own empty frame until the state lands). Once there IS a
+  // state, it must be the current room's — gameStore.setRoomState clears
+  // stale state on a room change, and this refuses to render one anyway.
+  const gameHasStarted = currentGameState
+    ? currentGameState.roomId === roomState?.roomId
+    : roomState?.roomStatus === 'in_progress'
 
   // GameView redesign (2026-08-22): GameView.jsx now renders its own top bar
   // (same greeting text + the same supabase.auth.signOut() call, restyled

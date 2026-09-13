@@ -340,6 +340,24 @@ test('findActiveRoomIdForPlayer: null when the player\'s only membership is to a
   assert.equal(await findActiveRoomIdForPlayer(supabase, 'user-host'), null);
 });
 
+test('findActiveRoomIdForPlayer: a room with a live match outranks a NEWER lobby room', async () => {
+  // The exact shape of a real incident (2026-09-11): an unfinished match
+  // (room in_progress) and, created hours later, an empty lobby room the
+  // same player opened. Recency alone picked the lobby, so reloading the
+  // page resumed the player out of their live game.
+  const supabase = seededSupabase({
+    rooms: [
+      { id: 'room-live-match', join_code: 'AAA111', host_id: 'user-host', status: 'in_progress', updated_at: '2026-01-01T00:00:00.000Z' },
+      { id: 'room-new-lobby', join_code: 'BBB222', host_id: 'user-host', status: 'waiting_for_players', updated_at: '2026-01-02T00:00:00.000Z' },
+    ],
+    room_players: [
+      { room_id: 'room-live-match', player_id: 'user-host', is_ready: false, joined_at: '2026-01-01T00:00:00.000Z' },
+      { room_id: 'room-new-lobby', player_id: 'user-host', is_ready: false, joined_at: '2026-01-02T00:00:00.000Z' },
+    ],
+  });
+  assert.equal(await findActiveRoomIdForPlayer(supabase, 'user-host'), 'room-live-match');
+});
+
 test('findActiveRoomIdForPlayer: with more than one non-abandoned membership (no automatic cleanup on a closed tab), picks the most recently updated room', async () => {
   const supabase = seededSupabase({
     rooms: [

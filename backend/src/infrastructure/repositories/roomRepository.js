@@ -324,6 +324,17 @@ export async function findActiveRoomIdForPlayer(supabase, playerId) {
       if (gameStatus === 'finished' || gameStatus === 'aborted') return false;
       return true;
     })
-    .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+    // A room with a match actually running outranks any lobby room, and only
+    // then does recency break ties. Pure most-recently-updated ordering (the
+    // rule until 2026-09-11) let a throwaway lobby beat a live match: a real
+    // player with an unfinished round-3 game (room in_progress, snapshot on
+    // disk) opened a new room to test lobby speed, and from then on a page
+    // reload resumed them into that empty lobby instead of their match —
+    // the match was still fully recoverable server-side, the client was
+    // simply pointed at the wrong room.
+    .sort((a, b) => {
+      const live = (room) => (room.status === 'in_progress' ? 0 : 1);
+      return live(a) - live(b) || new Date(b.updated_at) - new Date(a.updated_at);
+    });
   return active[0]?.id ?? null;
 }
